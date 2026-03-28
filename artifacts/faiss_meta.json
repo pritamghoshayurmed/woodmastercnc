@@ -1,0 +1,156 @@
+[
+  {
+    "chunk_id": "knowledge-abbf4608be",
+    "text": "# WoodMaster - Sample Knowledge Base\n# \n# This is a sample file to demonstrate the knowledge format.\n# Replace this with your actual machine information.\n# You can have multiple .txt files - they'll all be ingested.",
+    "source": "data/knowledge.txt",
+    "metadata": {
+      "section_index": 0,
+      "chunk_index": 0,
+      "product_tag": null,
+      "images": []
+    }
+  },
+  {
+    "chunk_id": "knowledge-c196a6cde8",
+    "text": "COMPANY OVERVIEW",
+    "source": "data/knowledge.txt",
+    "metadata": {
+      "section_index": 1,
+      "chunk_index": 0,
+      "product_tag": null,
+      "images": []
+    }
+  },
+  {
+    "chunk_id": "knowledge-9ccf62b80b",
+    "text": "WoodMaster is a leading manufacturer and supplier of professional woodworking machinery. We provide high-quality machines for furniture manufacturing, carpentry workshops, timber processing, and industrial woodworking operations.\n\nOur product range includes CNC Routers, Band Saws, Planer Thicknessers, Wood Lathes, Edge Banding Machines, Panel Saws, Spindle Moulders, Dust Collectors, and Boring Machines.\n\nWe offer:\n- Free installation and training\n- 1-year comprehensive warranty\n- After-sales service across India\n- Spare parts availability\n- EMI options available\n- Demo machines available for trial",
+    "source": "data/knowledge.txt",
+    "metadata": {
+      "section_index": 2,
+      "chunk_index": 0,
+      "product_tag": null,
+      "images": []
+    }
+  },
+  {
+    "chunk_id": "knowledge-f8582e2866",
+    "text": "Contact our sales team:\n- Phone: +91-XXXXX-XXXXX\n- Email: sales@woodmaster.com\n- Website: www.woodmaster.com",
+    "source": "data/knowledge.txt",
+    "metadata": {
+      "section_index": 2,
+      "chunk_index": 1,
+      "product_tag": null,
+      "images": []
+    }
+  },
+  {
+    "chunk_id": "knowledge-742c5e0ec1",
+    "text": "Wood Master 1625 HIGH SPEED SERVO SPECIFICATION-1\nEngineered for precision furniture manufacturing, the Woodmaster CNC 1325 delivers exceptional accuracy for door panels, cabinet components, and intricate woodwork. Its robust gantry system ensures stability during extended production runs.",
+    "source": "data/knowledge.txt",
+    "metadata": {
+      "section_index": 3,
+      "chunk_index": 0,
+      "product_tag": null,
+      "images": []
+    }
+  },
+  {
+    "chunk_id": "knowledge-74a794bf5a",
+    "text": "Starting Configuration\n₹4,50,000\n*Excl. Taxes\nRequest Quote\nDownload Brochure\nTechnical Specifications\n1. M-SERVO MOTOR & DRIVE .[750watt]\n2. PLANETORY GEARBOX 1:10 RATIO [Redovic].\n3. 25 MM RAIL+ BLOCK[KUNIX MAKE],25MM RACK [REDOVIC]\n4. BALLSCREW 25/10 [KUNIX MAKE].\n5. COUPLING ON ZAXIS [MIKIPULLY- JAPAN].\n6. SPINDLE 4.5 KW 220 V[ HQD].\n7. VFD [DEZAW].\n8. RACK & PINION 25MM ,1.25M [REDOVIC ].\n9. VPR WITH SERVO EMERGENCY ALARM SYSTEM.\n10. THREE TYRE TOWER LIGHT WITH EMERGENCY BEZZER.\n11. NK 105G 3 CONTROLLER .\n12. ALUMINIUM KEY SLOT BED,WITH BLACK SILICON SHEET.\n13. MACHINE SCRUCTURE 8MM TATA/NEZONE/APOLLO/JSW MAKE.\n14. VOLTAGE METER .\n15. VOLTAGE FLUCTUATION PROTECTION ALARM.",
+    "source": "data/knowledge.txt",
+    "metadata": {
+      "section_index": 3,
+      "chunk_index": 1,
+      "product_tag": null,
+      "images": []
+    }
+  },
+  {
+    "chunk_id": "knowledge-e9a4de9935",
+    "text": "13. MACHINE SCRUCTURE 8MM TATA/NEZONE/APOLLO/JSW MAKE.\n14. VOLTAGE METER .\n15. VOLTAGE FLUCTUATION PROTECTION ALARM.\n16. SPINDLE TEMP CONTROL.\n17. VOLT-220V-1PHASE.\n18. TOTAL LOAD–8KW.\n19. EMI FILTER 20A 5PIECE [TO PROCECT DRIVES].\n20. RELEY 6POLE.\n21. VRIBRATION PAD 6 PIECE .\nUnique Features\n1. AUTOHOMING [1STIN INDIA]\n2. NIGHTMODE\n3. MOBILECONTROLLING [UNDER R&D]\n4. ORIGIN LAMP\nToolbox Includes\n1. CLAMP 6 PIECE\n2. SECCOR 1 PIECE\n3. ALENKEY SET 1 BOX[ TAPARIA]\n4. SPANNERS FOR SPIENDLE\n5. COLLETER 32 COLLETS 1PIECE EACH SIZE\n6. ALL TYPE OF TOOLS MIX 10PIECE\n7. WM CNC TECH TSHIRT",
+    "source": "data/knowledge.txt",
+    "metadata": {
+      "section_index": 3,
+      "chunk_index": 2,
+      "product_tag": null,
+      "images": []
+    }
+  },
+  {
+    "chunk_id": "knowledge-20b6ae488d",
+    "text": "Industrial Series\nWM-1625 A+ [HIGH SPEED AC SERVO SPECIFICATION]\nThe Woodmaster CNC 1530 is built for high-volume production facilities requiring non-stop operation. Its reinforced structure and powerful spindle handle dense hardwoods and composite materials with ease.",
+    "source": "data/knowledge.txt",
+    "metadata": {
+      "section_index": 4,
+      "chunk_index": 0,
+      "product_tag": null,
+      "images": []
+    }
+  },
+  {
+    "chunk_id": "knowledge-7280f2cc47",
+    "text": "Starting Configuration\n₹5,25,000\n*Excl. Taxes\nRequest Quote\nDownload Brochure\nTechnical Specifications\n1. AC SERVO MOTOR & DRIVE .[750watt ,RTILLIGENT/DEZAW]\n2. PLANETORY GEARBOX 1:10 RATIO [Redovic].\n3. 25 MM RAIL+ BLOCK[KUNIX MAKE],25MM RACK [REDOVIC]\n4. BALLSCREW 25/10 [KUNIX MAKE].\n6. SPINDLE 4.5 KW 220 V[ HQD].\n5. COUPLING ON ZAXIS [MIKIPULLY- JAPAN].\n8. RACK & PINION 25MM ,1.25M [REDOVIC ].\n7. VFD [DEZAW].\n10. THREE TYRE TOWER LIGHT WITH EMERGENCY BEZZER.\n9. VPR WITH SERVO EMERGENCY ALARM SYSTEM.\n12. ALUMINIUM KEY SLOT BED,WITH BLACK SILICON SHEET.\n11. NK 105G 2 CONTROLLER .\n14. VOLTAGE METER .\n13. MACHINE SCRUCTURE 8MM TATA/NEZONE/APOLLO/JSW MAKE.\n16. SPINDLE TEMP CONTROL.",
+    "source": "data/knowledge.txt",
+    "metadata": {
+      "section_index": 4,
+      "chunk_index": 1,
+      "product_tag": null,
+      "images": []
+    }
+  },
+  {
+    "chunk_id": "knowledge-0aee14b295",
+    "text": "14. VOLTAGE METER .\n13. MACHINE SCRUCTURE 8MM TATA/NEZONE/APOLLO/JSW MAKE.\n16. SPINDLE TEMP CONTROL.\n15. VOLTAGE FLUCTUATION PROTECTION ALARM.\n18. TOTAL LOAD–8KW.\n17. VOLT-220V-1PHASE.\n20. RELEY 6POLE.\n19. EMI FILTER 20A 5PIECE [TO PROCECT DRIVES].\n21. VRIBRATION PAD 6 PIECE .\nUnique Features\n1. AUTOHOMING [1STIN INDIA].\n2. NIGHTMODE.\n3. MOBILECONTROLLING [UNDER R&D].\n4. ORIGIN LAMP.\n5. LASER POINT FOR ORIGIN .\n6. TRANSFER BALL BEARING.\nToolbox Includes\n1. CLAMP 6 PIECE\n2. SECCOR 1 PIECE\n3. ALENKEY SET 1 BOX[ TAPARIA]\n4. SPANNERS FOR SPIENDLE\n5. COLLETER 32 COLLETS 1PIECE EACH SIZE\n6. ALL TYPE OF TOOLS MIX 10PIECE\n7. WM CNC TECH TSHIRT",
+    "source": "data/knowledge.txt",
+    "metadata": {
+      "section_index": 4,
+      "chunk_index": 2,
+      "product_tag": null,
+      "images": []
+    }
+  },
+  {
+    "chunk_id": "knowledge-7bb830c3d1",
+    "text": "ATC Series\nWood Master 1625 B STEEPER SPECIFICATION\nMaximize productivity with the Woodmaster CNC ATC Pro. The automatic tool changer enables seamless transitions between cutting, drilling, and engraving operations without manual intervention.",
+    "source": "data/knowledge.txt",
+    "metadata": {
+      "section_index": 5,
+      "chunk_index": 0,
+      "product_tag": null,
+      "images": []
+    }
+  },
+  {
+    "chunk_id": "knowledge-b413205ff8",
+    "text": "Starting Configuration\n₹7,80,000\n*Excl. Taxes\nRequest Quote\nDownload Brochure\nTechnical Specifications\n1. STEEPER MOTOR & DRIVE .[450watt,YAKOTEC/DEZAW]\n2. PLANETORY GEARBOX 1:10 RATIO [Redovic]/BELT PULLEY GEAR BOX.\n3. 25 MM RAIL+ BLOCK[KUNIX MAKE],25MM RACK [REDOVIC]\n4. BALLSCREW 25/10 [KUNIX MAKE].\n5. COUPLING ON ZAXIS [MIKIPULLY- JAPAN].\n6. SPINDLE 4.5 KW 220 V[ HQD].\n7. VFD [DEZAW].\n8. RACK & PINION 25MM ,1.25M [REDOVIC ].\n9. NK 105G 3/RICH AUTO A11 CONTROLLER .\n10. ALUMINIUM KEY SLOT BED,WITH BLACK SILICON SHEET.\n11. MACHINE SCRUCTURE 5 MM TATA/NEZONE/APOLLO/JSW MAKE.\n12. VOLTAGE METER .\n13. VOLTAGE FLUCTUATION PROTECTION ALARM.\n14. SPINDLE TEMP CONTROL.\n15. VOLT-220V-1PHASE.",
+    "source": "data/knowledge.txt",
+    "metadata": {
+      "section_index": 5,
+      "chunk_index": 1,
+      "product_tag": null,
+      "images": []
+    }
+  },
+  {
+    "chunk_id": "knowledge-abcc5c7ef1",
+    "text": "12. VOLTAGE METER .\n13. VOLTAGE FLUCTUATION PROTECTION ALARM.\n14. SPINDLE TEMP CONTROL.\n15. VOLT-220V-1PHASE.\n16. TOTAL LOAD–8KW.\n17. EMI FILTER 20A 5PIECE [TO PROCECT DRIVES].\n18. RELEY 6POLE.\n19. VRIBRATION PAD 6 PIECE .\nUnique Features\n1. NIGHTMODE\n2. MOBILECONTROLLING [UNDER R&D]\n3. ORIGIN LAMP\nToolbox Includes\n1. CLAMP 6 PIECE\n2. SECCOR 1 PIECE\n3. ALENKEY SET 1 BOX[ TAPARIA]\n4. SPANNERS FOR SPIENDLE\n5. COLLETER 32 COLLETS 1PIECE EACH SIZE\n6. ALL TYPE OF TOOLS MIX 10PIECE\n7. WM CNC TECH TSHIRT",
+    "source": "data/knowledge.txt",
+    "metadata": {
+      "section_index": 5,
+      "chunk_index": 2,
+      "product_tag": null,
+      "images": []
+    }
+  },
+  {
+    "chunk_id": "knowledge-da6331de35",
+    "text": "NOTE: Add your actual machine catalog data here.\nReplace this file with your real knowledge base content.",
+    "source": "data/knowledge.txt",
+    "metadata": {
+      "section_index": 6,
+      "chunk_index": 0,
+      "product_tag": null,
+      "images": []
+    }
+  }
+]

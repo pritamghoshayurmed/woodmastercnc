@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Woodmaster CNC Assistant</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        }
+
+        body {
+            background-color: #e5ddd5;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+        }
+
+        .container {
+            width: 100%;
+            max-width: 500px;
+            height: 90vh;
+            background-color: #fff;
+            border-radius: 10px;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+        }
+
+        header {
+            background-color: #008069;
+            color: #fff;
+            padding: 15px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .header-info {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .header-title {
+            font-weight: bold;
+            font-size: 1.1rem;
+        }
+
+        .header-subtitle {
+            font-size: 0.8rem;
+            opacity: 0.8;
+        }
+
+        .session-setup {
+            padding: 10px;
+            background-color: #f0f2f5;
+            display: flex;
+            gap: 10px;
+            border-bottom: 1px solid #ddd;
+        }
+
+        .session-setup input {
+            flex: 1;
+            padding: 10px;
+            border: 1px solid #ccc;
+            border-radius: 5px;
+            outline: none;
+        }
+
+        .chat-area {
+            flex: 1;
+            background-image: url('https://user-images.githubusercontent.com/15075759/28719144-86dc0f70-73b1-11e7-911d-60d70fcded21.png');
+            background-color: #e5ddd5;
+            padding: 20px;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .message {
+            max-width: 80%;
+            padding: 10px 12px;
+            border-radius: 8px;
+            font-size: 0.95rem;
+            line-height: 1.4;
+            position: relative;
+            word-wrap: break-word;
+            white-space: pre-wrap;
+        }
+
+        .message.sent {
+            align-self: flex-end;
+            background-color: #d9fdd3;
+            border-top-right-radius: 0;
+        }
+
+        .message.received {
+            align-self: flex-start;
+            background-color: #fff;
+            border-top-left-radius: 0;
+        }
+        
+        .message-image {
+            max-width: 100%;
+            border-radius: 5px;
+            margin-top: 8px;
+            cursor: pointer;
+            border: 1px solid #eee;
+        }
+
+        .input-area {
+            display: flex;
+            padding: 10px;
+            background-color: #f0f2f5;
+            align-items: center;
+        }
+
+        .input-area input {
+            flex: 1;
+            padding: 12px 15px;
+            border: none;
+            border-radius: 20px;
+            margin-right: 10px;
+            outline: none;
+            background-color: #fff;
+        }
+
+        .send-btn {
+            background-color: #008069;
+            color: white;
+            border: none;
+            width: 45px;
+            height: 45px;
+            border-radius: 50%;
+            cursor: pointer;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-size: 1.2rem;
+            transition: background-color 0.2s;
+        }
+
+        .send-btn:hover {
+            background-color: #005c4b;
+        }
+        
+        .send-btn:disabled {
+            background-color: #ccc;
+            cursor: not-allowed;
+        }
+
+        /* Loading indicator */
+        .typing-indicator {
+            display: none;
+            align-self: flex-start;
+            background-color: #fff;
+            padding: 8px 12px;
+            border-radius: 8px;
+            font-style: italic;
+            color: #666;
+            font-size: 0.85rem;
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <header>
+        <div class="header-info">
+            <span class="header-title">Woodmaster CNC</span>
+            <span class="header-subtitle">online</span>
+        </div>
+    </header>
+
+    <div class="session-setup">
+        <input type="text" id="mobileNumber" placeholder="Enter mobile number as Session ID" value="">
+    </div>
+
+    <div class="chat-area" id="chatArea">
+        <div class="message received">Hello! Please enter your mobile number above as your unique session ID, then start chatting. I am the Woodmaster CNC Assistant! 😊</div>
+        <div class="typing-indicator" id="typingIndicator">Woodmaster CNC is typing...</div>
+    </div>
+
+    <div class="input-area">
+        <input type="text" id="messageInput" placeholder="Type a message..." autocomplete="off">
+        <button class="send-btn" id="sendBtn">▶</button>
+    </div>
+</div>
+
+<script>
+    const chatArea = document.getElementById('chatArea');
+    const messageInput = document.getElementById('messageInput');
+    const sendBtn = document.getElementById('sendBtn');
+    const mobileNumberInput = document.getElementById('mobileNumber');
+    const typingIndicator = document.getElementById('typingIndicator');
+
+    function addMessage(text, isSent, images = []) {
+        const msgDiv = document.createElement('div');
+        msgDiv.className = `message ${isSent ? 'sent' : 'received'}`;
+        msgDiv.textContent = text;
+        
+        // Add images if any
+        images.forEach(imgUrl => {
+            const imgEl = document.createElement('img');
+            // Assuming image path comes relative from backend (like "data/images/...")
+            const safeUrl = imgUrl.startsWith('/') ? imgUrl : `/${imgUrl}`;
+            imgEl.src = safeUrl;
+            imgEl.className = 'message-image';
+            msgDiv.appendChild(imgEl);
+        });
+
+        chatArea.insertBefore(msgDiv, typingIndicator);
+        chatArea.scrollTop = chatArea.scrollHeight;
+    }
+
+    async function sendMessage() {
+        const text = messageInput.value.trim();
+        let session = mobileNumberInput.value.trim();
+        
+        if (!session) {
+            alert("Please enter a mobile number as session ID first.");
+            mobileNumberInput.focus();
+            return;
+        }
+
+        if (!text) return;
+
+        // Display user message
+        addMessage(text, true);
+        messageInput.value = '';
+        messageInput.disabled = true;
+        sendBtn.disabled = true;
+        
+        typingIndicator.style.display = 'block';
+        chatArea.scrollTop = chatArea.scrollHeight;
+
+        try {
+            const response = await fetch('/webhook', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    session_id: session,
+                    message: text
+                })
+            });
+
+            if (!response.ok) throw new Error("API Network error");
+            const data = await response.json();
+            
+            typingIndicator.style.display = 'none';
+            addMessage(data.reply, false, data.images || []);
+        } catch (error) {
+            typingIndicator.style.display = 'none';
+            addMessage("Oops! Could not connect to the assistant.", false);
+            console.error(error);
+        } finally {
+            messageInput.disabled = false;
+            sendBtn.disabled = false;
+            messageInput.focus();
+        }
+    }
+
+    sendBtn.addEventListener('click', sendMessage);
+
+    messageInput.addEventListener('keypress', function(e) {
+        if (e.key === 'Enter') {
+            sendMessage();
+        }
+    });
+
+</script>
+</body>
+</html>
