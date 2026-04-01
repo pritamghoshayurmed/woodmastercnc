@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import time
 
 from google import genai
@@ -8,6 +9,9 @@ from google.genai import types
 
 class GeminiRateLimitError(RuntimeError):
 	pass
+
+
+logger = logging.getLogger(__name__)
 
 
 class GeminiGenerator:
@@ -68,7 +72,8 @@ class GeminiGenerator:
 				config=config,
 			)
 			return (response.text or question).strip()
-		except Exception:
+		except Exception as exc:
+			logger.warning("Query reformulation failed; using original question", extra={"error_type": exc.__class__.__name__})
 			return question
 
 	def generate_stream(self, question: str, context: str, history: list[dict[str, str]]):

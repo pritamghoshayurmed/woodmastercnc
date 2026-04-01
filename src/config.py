@@ -20,8 +20,10 @@ class Settings:
     data_dir: Path
     image_dir: Path
     artifact_dir: Path
+    session_store_dir: Path
     faiss_index_path: Path
     faiss_metadata_path: Path
+    session_encryption_key: str | None
     chunk_size: int
     chunk_overlap: int
     top_k: int
@@ -52,8 +54,10 @@ def load_settings() -> Settings:
         data_dir=base_dir / "data",
         image_dir=base_dir / "data" / "images",
         artifact_dir=artifact_dir,
+        session_store_dir=artifact_dir / "sessions_private",
         faiss_index_path=artifact_dir / "faiss.index",
         faiss_metadata_path=artifact_dir / "faiss_meta.json",
+        session_encryption_key=(os.getenv("SESSION_ENCRYPTION_KEY", "").strip() or gemini_api_key),
         chunk_size=int(os.getenv("RAG_CHUNK_SIZE", "700")),
         chunk_overlap=int(os.getenv("RAG_CHUNK_OVERLAP", "120")),
         top_k=int(os.getenv("RAG_TOP_K", "5")),

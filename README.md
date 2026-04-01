@@ -28,6 +28,14 @@ Add these values to `.env`:
 ```env
 GEMINI_API_KEY=your_gemini_key
 
+# WhatsApp Cloud API (Meta)
+WHATSAPP_VERIFY_TOKEN=your_random_verify_token
+WHATSAPP_PHONE_NUMBER_ID=your_phone_number_id
+WHATSAPP_ACCESS_TOKEN=your_permanent_or_temp_access_token
+WHATSAPP_GRAPH_VERSION=v23.0
+# Optional but recommended for webhook signature validation
+WHATSAPP_APP_SECRET=your_meta_app_secret
+
 # Optional overrides
 GEMINI_EMBEDDING_MODEL=models/gemini-embedding-001
 GEMINI_GENERATION_MODEL=gemini-2.5-flash
@@ -45,6 +53,57 @@ RAG_TOP_K=5
 RAG_MEMORY_TURNS=8
 RAG_MAX_CONTEXT_CHARS=5000
 ```
+
+## Real WhatsApp Integration (Meta Cloud API)
+
+This project now supports real WhatsApp webhooks on:
+
+- `GET /whatsapp/webhook` for Meta verification handshake
+- `POST /whatsapp/webhook` for incoming WhatsApp messages
+
+### Credentials You Need
+
+1. `WHATSAPP_VERIFY_TOKEN`
+2. `WHATSAPP_PHONE_NUMBER_ID`
+3. `WHATSAPP_ACCESS_TOKEN`
+4. `WHATSAPP_APP_SECRET` (recommended)
+5. `GEMINI_API_KEY` (already required by this RAG app)
+
+### How to Get Them (Step by Step)
+
+1. Create a Meta developer app
+	- Go to Meta for Developers and create an app (Business type is typical).
+2. Add WhatsApp product to the app
+	- In your app dashboard, add the WhatsApp product.
+3. Get test sender setup
+	- In WhatsApp API setup, Meta gives a test phone number and temporary token.
+4. Get `WHATSAPP_PHONE_NUMBER_ID`
+	- In WhatsApp API setup, copy the Phone Number ID.
+5. Generate `WHATSAPP_VERIFY_TOKEN`
+	- Create any random long string yourself (for example from a password generator).
+	- Put it in `.env` as `WHATSAPP_VERIFY_TOKEN`.
+6. Get `WHATSAPP_ACCESS_TOKEN`
+	- For testing: use the temporary token shown in Meta dashboard.
+	- For production: create a system user token in Meta Business Manager with WhatsApp permissions.
+7. Get `WHATSAPP_APP_SECRET` (recommended)
+	- In your Meta app settings, copy App Secret and set `WHATSAPP_APP_SECRET`.
+8. Configure webhook URL in Meta
+	- Public HTTPS URL must point to: `https://<your-domain>/whatsapp/webhook`
+	- Verify token must match `WHATSAPP_VERIFY_TOKEN`.
+9. Subscribe webhook fields
+	- Subscribe at least to `messages` for your WhatsApp business account.
+10. Add recipient numbers
+	- In test mode, add recipient phone numbers in Meta's allowed recipients list.
+11. Send a test message
+	- Message your WhatsApp business number from an allowed number.
+	- The app reads incoming message, queries RAG, and sends back the answer.
+
+### Production Notes
+
+- Webhook endpoint must be publicly reachable over HTTPS.
+- Move from temporary to permanent access token before go-live.
+- Keep `WHATSAPP_APP_SECRET` enabled so incoming webhook signatures are validated.
+- Configure token rotation and monitoring for reliability.
 
 ## Install
 

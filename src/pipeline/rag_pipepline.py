@@ -39,7 +39,11 @@ class RAGPipeline:
 			metadata_path=settings.faiss_metadata_path,
 		)
 		self.context_manager = ContextManager(max_context_chars=settings.max_context_chars)
-		self.memory_manager = ConversationMemoryManager(max_turns=settings.memory_turns)
+		self.memory_manager = ConversationMemoryManager(
+			max_turns=settings.memory_turns,
+			session_dir=settings.session_store_dir,
+			encryption_key=settings.session_encryption_key,
+		)
 
 	def initialize(self, force_rebuild: bool = False) -> None:
 		self.settings.artifact_dir.mkdir(parents=True, exist_ok=True)
@@ -219,29 +223,42 @@ class RAGPipeline:
 
 	def _resolve_images(self, question: str, retrieved) -> list[str]:
 		selected: list[str] = []
+		product_tags: set[str] = set()
 		
 		for item in retrieved:
 			chunk_images = item.chunk.metadata.get("images", [])
+			product_tag = item.chunk.metadata.get("product_tag")
+			if product_tag:
+				product_tags.add(str(product_tag).lower())
 			for img in chunk_images:
 				if img not in selected:
 					selected.append(img)
-					
-		# If none found from metadata, load the map and fallback safely
+
+		# If no direct chunk image match, infer only from product IDs referenced by
+		# retrieved chunks and explicit question product mentions.
 		if not selected:
 			image_map = {}
 			mapping_file = self.settings.data_dir / "image_mapping.json"
 			if mapping_file.exists():
 				with open(mapping_file, "r", encoding="utf-8") as f:
 					image_map = json.load(f)
-			
+
+			question_tags: set[str] = set()
+			for match in re.finditer(r"product\s*(\d+)|product(\d+)", question.lower()):
+				group = match.group(1) or match.group(2)
+				if group:
+					question_tags.add(f"product{group}")
+			target_tags = product_tags.union(question_tags)
+
+			for tag in target_tags:
+				path = image_map.get(tag)
+				if path and path not in selected:
+					selected.append(path)
+
 			q = question.lower()
-			wants_images = any(keyword in q for keyword in ["image", "photo", "show", "model", "models", "catalog"])
-			if wants_images:
-				for stem, path in image_map.items():
-					if stem in q and path not in selected:
-						selected.append(path)
-				if not selected:
-					selected = list(image_map.values())[:3]
+			for stem, path in image_map.items():
+				if stem.lower() in q and path not in selected:
+					selected.append(path)
 
 		return selected
 
