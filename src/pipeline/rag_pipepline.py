@@ -60,7 +60,12 @@ class RAGPipeline:
 		self.vector_store.build(chunks=chunks, embeddings=embeddings)
 		self.vector_store.save()
 
-	def query(self, question: str, session_id: str = "default") -> dict:
+	def query(
+		self,
+		question: str,
+		session_id: str = "default",
+		preferred_language: str | None = None,
+	) -> dict:
 		self.memory_manager.add_user_message(session_id, question)
 		
 		# Context dilution fix: fetch smaller history for reformulate and generation
@@ -75,7 +80,12 @@ class RAGPipeline:
 		context, sources = self.context_manager.build_context(retrieved)
 
 		try:
-			answer = self.generator.generate(question=question, context=context, history=recent_history)
+			answer = self.generator.generate(
+				question=question,
+				context=context,
+				history=recent_history,
+				preferred_language=preferred_language,
+			)
 		except GeminiRateLimitError:
 			answer = self._build_fallback_answer(question=question, retrieved=retrieved, rate_limited=True)
 		except Exception as exc:
@@ -104,7 +114,12 @@ class RAGPipeline:
 			],
 		}
 
-	def query_stream(self, question: str, session_id: str = "default"):
+	def query_stream(
+		self,
+		question: str,
+		session_id: str = "default",
+		preferred_language: str | None = None,
+	):
 		self.memory_manager.add_user_message(session_id, question)
 		
 		# Context dilution fix: fetch smaller history for reformulate and generation
@@ -139,7 +154,12 @@ class RAGPipeline:
 
 		full_answer = ""
 		try:
-			for text_chunk in self.generator.generate_stream(question=question, context=context, history=recent_history):
+			for text_chunk in self.generator.generate_stream(
+				question=question,
+				context=context,
+				history=recent_history,
+				preferred_language=preferred_language,
+			):
 				full_answer += text_chunk
 				yield {"type": "chunk", "content": text_chunk}
 		except GeminiRateLimitError:

@@ -13,7 +13,7 @@
         }
 
         body {
-            background-color: #e5ddd5;
+            background-color: #0b141a;
             display: flex;
             justify-content: center;
             align-items: center;
@@ -24,16 +24,16 @@
             width: 100%;
             max-width: 500px;
             height: 90vh;
-            background-color: #fff;
-            border-radius: 10px;
+            background-color: #111b21;
+            border-radius: 0;
             overflow: hidden;
             display: flex;
             flex-direction: column;
-            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+            box-shadow: 0 8px 30px rgba(0,0,0,0.35);
         }
 
         header {
-            background-color: #008069;
+            background-color: #202c33;
             color: #fff;
             padding: 15px;
             display: flex;
@@ -53,29 +53,13 @@
 
         .header-subtitle {
             font-size: 0.8rem;
-            opacity: 0.8;
-        }
-
-        .session-setup {
-            padding: 10px;
-            background-color: #f0f2f5;
-            display: flex;
-            gap: 10px;
-            border-bottom: 1px solid #ddd;
-        }
-
-        .session-setup input {
-            flex: 1;
-            padding: 10px;
-            border: 1px solid #ccc;
-            border-radius: 5px;
-            outline: none;
+            opacity: 0.85;
         }
 
         .chat-area {
             flex: 1;
-            background-image: url('https://user-images.githubusercontent.com/15075759/28719144-86dc0f70-73b1-11e7-911d-60d70fcded21.png');
-            background-color: #e5ddd5;
+            background-image: url('https://i.imgur.com/8W7iX9K.png');
+            background-color: #0b141a;
             padding: 20px;
             overflow-y: auto;
             display: flex;
@@ -96,13 +80,15 @@
 
         .message.sent {
             align-self: flex-end;
-            background-color: #d9fdd3;
+            background-color: #005c4b;
+            color: #e9edef;
             border-top-right-radius: 0;
         }
 
         .message.received {
             align-self: flex-start;
-            background-color: #fff;
+            background-color: #202c33;
+            color: #e9edef;
             border-top-left-radius: 0;
         }
         
@@ -117,7 +103,7 @@
         .input-area {
             display: flex;
             padding: 10px;
-            background-color: #f0f2f5;
+            background-color: #202c33;
             align-items: center;
         }
 
@@ -128,7 +114,8 @@
             border-radius: 20px;
             margin-right: 10px;
             outline: none;
-            background-color: #fff;
+            background-color: #2a3942;
+            color: #e9edef;
         }
 
         .send-btn {
@@ -147,7 +134,7 @@
         }
 
         .send-btn:hover {
-            background-color: #005c4b;
+            background-color: #01896d;
         }
         
         .send-btn:disabled {
@@ -159,12 +146,132 @@
         .typing-indicator {
             display: none;
             align-self: flex-start;
-            background-color: #fff;
+            background-color: #202c33;
             padding: 8px 12px;
             border-radius: 8px;
             font-style: italic;
-            color: #666;
+            color: #c7d0d6;
             font-size: 0.85rem;
+        }
+
+        .quick-replies {
+            margin-top: 10px;
+            display: flex;
+            flex-direction: column;
+            gap: 0;
+            border-top: 1px solid #2e3d45;
+        }
+
+        .quick-reply-btn {
+            background-color: transparent;
+            color: #00a884;
+            border: 0;
+            border-top: 1px solid #2e3d45;
+            padding: 14px 12px;
+            text-align: center;
+            cursor: pointer;
+            font-size: 1rem;
+            font-weight: 600;
+        }
+
+        .quick-reply-btn:hover {
+            background-color: #2a3942;
+        }
+
+        .interactive-card {
+            max-width: 92%;
+            align-self: flex-start;
+            background-color: #202c33;
+            border-radius: 12px;
+            overflow: hidden;
+            color: #e9edef;
+        }
+
+        .interactive-image {
+            width: 100%;
+            display: block;
+            max-height: 280px;
+            object-fit: cover;
+            border-bottom: 1px solid #2e3d45;
+        }
+
+        .interactive-content {
+            padding: 14px;
+        }
+
+        .interactive-content p {
+            white-space: pre-wrap;
+            line-height: 1.45;
+            font-size: 1.05rem;
+        }
+
+        .modal-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.45);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+        }
+
+        .modal-card {
+            width: min(90vw, 420px);
+            background: #111b21;
+            color: #e9edef;
+            border-radius: 14px;
+            padding: 20px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25);
+        }
+
+        .modal-card h3 {
+            margin-bottom: 10px;
+            color: #e9edef;
+        }
+
+        .modal-card p {
+            color: #c7d0d6;
+            margin-bottom: 14px;
+            line-height: 1.4;
+        }
+
+        .modal-card input {
+            width: 100%;
+            padding: 11px 12px;
+            border: 1px solid #2e3d45;
+            border-radius: 8px;
+            outline: none;
+            margin-bottom: 10px;
+            background: #202c33;
+            color: #e9edef;
+        }
+
+        .modal-card button {
+            width: 100%;
+            background-color: #008069;
+            color: #fff;
+            border: none;
+            border-radius: 8px;
+            padding: 11px;
+            cursor: pointer;
+            font-weight: 600;
+        }
+
+        .modal-card button:hover {
+            background-color: #005c4b;
+        }
+
+        .session-error {
+            color: #c0392b;
+            font-size: 0.85rem;
+            min-height: 1rem;
+            margin-bottom: 8px;
+        }
+
+        @media (max-width: 640px) {
+            .container {
+                height: 100vh;
+            }
         }
     </style>
 </head>
@@ -173,17 +280,18 @@
 <div class="container">
     <header>
         <div class="header-info">
-            <span class="header-title">Woodmaster CNC</span>
+            <div style="display: flex; align-items: center; gap: 5px;">
+                <span class="header-title">Woodmaster CNC</span>
+                <!-- Verified Badge inline SVG -->
+                <svg viewBox="0 0 18 18" width="16" height="16" style="fill: #00a884;">
+                    <path d="M9 1.144L7.568.125l-1.636.565-.632 1.6-1.726.155-.162 1.722-1.603.626L2.378 6.42 1 7.712l.608 1.62-.608 1.62 1.378 1.293-.569 1.627 1.603.626.162 1.722 1.726.155.632 1.6 1.636.565L9 16.856l1.432 1.019 1.636-.565.632-1.6 1.726-.155.162-1.722 1.603-.626L15.622 11.58l1.378-1.293-.608-1.62.608-1.62-1.378-1.293.568-1.627-1.603-.626-.162-1.722-1.726-.155-.632-1.6-1.636-.565L9 1.144zm4.07 5.67l-5.11 5.111-2.556-2.556.886-.886 1.67 1.67 4.224-4.225.886.886z"></path>
+                </svg>
+            </div>
             <span class="header-subtitle">online</span>
         </div>
     </header>
 
-    <div class="session-setup">
-        <input type="text" id="mobileNumber" placeholder="Enter mobile number as Session ID" value="">
-    </div>
-
     <div class="chat-area" id="chatArea">
-        <div class="message received">Hello! Please enter your mobile number above as your unique session ID, then start chatting. I am the Woodmaster CNC Assistant! 😊</div>
         <div class="typing-indicator" id="typingIndicator">Woodmaster CNC is typing...</div>
     </div>
 
@@ -193,14 +301,103 @@
     </div>
 </div>
 
+<div class="modal-overlay" id="sessionModal">
+    <div class="modal-card">
+        <h3>Start New Session</h3>
+        <p>Enter your mobile number as session ID to begin chatting with Woodmaster CNC.</p>
+        <input type="text" id="sessionInput" placeholder="e.g. 919876543210" autocomplete="off">
+        <div class="session-error" id="sessionError"></div>
+        <button id="sessionStartBtn">Continue</button>
+    </div>
+</div>
+
 <script>
     const chatArea = document.getElementById('chatArea');
     const messageInput = document.getElementById('messageInput');
     const sendBtn = document.getElementById('sendBtn');
-    const mobileNumberInput = document.getElementById('mobileNumber');
     const typingIndicator = document.getElementById('typingIndicator');
+    const sessionModal = document.getElementById('sessionModal');
+    const sessionInput = document.getElementById('sessionInput');
+    const sessionError = document.getElementById('sessionError');
+    const sessionStartBtn = document.getElementById('sessionStartBtn');
 
-    function addMessage(text, isSent, images = []) {
+    let sessionId = '';
+    let waitingForResponse = false;
+
+    function normalizeSessionId(raw) {
+        return raw.trim().replace(/\s+/g, '');
+    }
+
+    function openSessionModal() {
+        sessionModal.style.display = 'flex';
+        sessionInput.focus();
+    }
+
+    function closeSessionModal() {
+        sessionModal.style.display = 'none';
+    }
+
+    function saveSession() {
+        const normalized = normalizeSessionId(sessionInput.value);
+        const valid = /^[A-Za-z0-9:_+\-]{3,64}$/.test(normalized);
+        if (!valid) {
+            sessionError.textContent = 'Please enter a valid session ID (3-64 chars).';
+            return;
+        }
+
+        sessionId = normalized;
+        localStorage.setItem('wmcnc_session_id', sessionId);
+        sessionError.textContent = '';
+        closeSessionModal();
+        messageInput.focus();
+    }
+
+    function addInteractiveCard(text, imageUrl, options = []) {
+        const card = document.createElement('div');
+        card.className = 'interactive-card';
+
+        if (imageUrl) {
+            const img = document.createElement('img');
+            img.className = 'interactive-image';
+            img.src = imageUrl.startsWith('/') ? imageUrl : `/${imageUrl}`;
+            card.appendChild(img);
+        }
+
+        const content = document.createElement('div');
+        content.className = 'interactive-content';
+        const textP = document.createElement('p');
+        textP.textContent = text;
+        content.appendChild(textP);
+
+        if (options.length > 0) {
+            const quickReplyWrap = document.createElement('div');
+            quickReplyWrap.className = 'quick-replies';
+            options.forEach(option => {
+                const btn = document.createElement('button');
+                btn.className = 'quick-reply-btn';
+                btn.type = 'button';
+                btn.textContent = `↩ ${option.label}`;
+                btn.addEventListener('click', () => {
+                    if (waitingForResponse) return;
+                    sendMessage(option.value);
+                });
+                quickReplyWrap.appendChild(btn);
+            });
+            content.appendChild(quickReplyWrap);
+        }
+
+        card.appendChild(content);
+        chatArea.insertBefore(card, typingIndicator);
+        chatArea.scrollTop = chatArea.scrollHeight;
+    }
+
+    function addMessage(text, isSent, images = [], options = []) {
+        if (!isSent && options.length > 0) {
+            const firstImage = images.length > 0 ? images[0] : '';
+            addInteractiveCard(text, firstImage, options);
+            return;
+        }
+
         const msgDiv = document.createElement('div');
         msgDiv.className = `message ${isSent ? 'sent' : 'received'}`;
         msgDiv.textContent = text;
@@ -219,21 +416,21 @@
         chatArea.scrollTop = chatArea.scrollHeight;
     }
 
-    async function sendMessage() {
-        const text = messageInput.value.trim();
-        let session = mobileNumberInput.value.trim();
-        
-        if (!session) {
-            alert("Please enter a mobile number as session ID first.");
-            mobileNumberInput.focus();
+    async function sendMessage(preFilledText = '') {
+        const text = (preFilledText || messageInput.value).trim();
+
+        if (!sessionId) {
+            openSessionModal();
             return;
         }
 
         if (!text) return;
+        if (waitingForResponse) return;
 
         // Display user message
         addMessage(text, true);
         messageInput.value = '';
+        waitingForResponse = true;
         messageInput.disabled = true;
         sendBtn.disabled = true;
         
@@ -247,7 +444,7 @@
                     'Content-Type': 'application/json'
                 },
                 body: JSON.stringify({
-                    session_id: session,
+                    session_id: sessionId,
                     message: text
                 })
             });
@@ -256,12 +453,13 @@
             const data = await response.json();
             
             typingIndicator.style.display = 'none';
-            addMessage(data.reply, false, data.images || []);
+            addMessage(data.reply, false, data.images || [], data.options || []);
         } catch (error) {
             typingIndicator.style.display = 'none';
             addMessage("Oops! Could not connect to the assistant.", false);
             console.error(error);
         } finally {
+            waitingForResponse = false;
             messageInput.disabled = false;
             sendBtn.disabled = false;
             messageInput.focus();
@@ -275,6 +473,19 @@
             sendMessage();
         }
     });
+
+    sessionStartBtn.addEventListener('click', saveSession);
+    sessionInput.addEventListener('keypress', function(e) {
+        if (e.key === 'Enter') {
+            saveSession();
+        }
+    });
+
+    const storedSession = localStorage.getItem('wmcnc_session_id') || '';
+    if (storedSession) {
+        sessionInput.value = storedSession;
+    }
+    openSessionModal();
 
 </script>
 </body>

@@ -19,6 +19,7 @@ from pydantic import BaseModel, Field, StringConstraints
 from typing import Annotated
 
 from src.config import load_settings
+from src.messenger.conversation_flow import ConversationFlowManager
 from src.pipeline.rag_pipepline import RAGPipeline
 
 logging.basicConfig(level=logging.INFO)
@@ -33,6 +34,7 @@ startup_error: str | None = None
 MAX_REQUESTS_PER_MINUTE = 20
 RATE_WINDOW_SECONDS = 60
 _rate_limits: dict[str, list[float]] = {}
+conversation_flow = ConversationFlowManager()
 
 # WhatsApp Cloud API env vars
 WHATSAPP_VERIFY_TOKEN = os.getenv("WHATSAPP_VERIFY_TOKEN", "").strip()
@@ -214,15 +216,31 @@ async def handle_webhook(req: WebhookRequest):
             status_code=503,
             content={"error": "RAG pipeline not initialized", "detail": startup_error or "Initialization pending"},
         )
+
+    flow_result = conversation_flow.handle_message(req.session_id, req.message)
+    if flow_result.handled:
+        return {
+            "session_id": req.session_id,
+            "reply": flow_result.reply,
+            "images": flow_result.images or [],
+            "options": flow_result.options or [],
+            "metadata": [],
+        }
     
     try:
-        response = await run_in_threadpool(rag.query, req.message, req.session_id)
+        response = await run_in_threadpool(
+            rag.query,
+            req.message,
+            req.session_id,
+            flow_result.preferred_language,
+        )
         
         # response should contain 'answer', 'sources', 'images'
         return {
             "session_id": req.session_id,
             "reply": response.get("answer", ""),
             "images": response.get("images", []),
+            "options": [],
             "metadata": response.get("retrieval", [])
         }
     except Exception as exc:
