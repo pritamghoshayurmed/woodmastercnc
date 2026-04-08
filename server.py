@@ -30,6 +30,9 @@ rag: RAGPipeline | None = None
 settings = None
 startup_error: str | None = None
 
+# Load environment variables from .env file immediately
+load_dotenv()
+
 # Basic in-memory rate limiter (per session_id)
 MAX_REQUESTS_PER_MINUTE = 20
 RATE_WINDOW_SECONDS = 60
