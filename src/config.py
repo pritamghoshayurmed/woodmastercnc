@@ -49,7 +49,7 @@ def load_settings() -> Settings:
         gemini_backoff_seconds=float(os.getenv("GEMINI_BACKOFF_SECONDS", "0.6")),
         gemini_temperature=float(os.getenv("GEMINI_TEMPERATURE", "0.35")),
         gemini_top_p=float(os.getenv("GEMINI_TOP_P", "0.9")),
-        gemini_max_output_tokens=int(os.getenv("GEMINI_MAX_OUTPUT_TOKENS", "280")),
+        gemini_max_output_tokens=int(os.getenv("GEMINI_MAX_OUTPUT_TOKENS", "600")),
         gemini_thinking_budget=int(os.getenv("GEMINI_THINKING_BUDGET", "0")),
         data_dir=base_dir / "data",
         image_dir=base_dir / "data" / "images",

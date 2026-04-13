@@ -24,7 +24,7 @@ class GeminiGenerator:
 		backoff_seconds: float = 0.6,
 		temperature: float = 0.35,
 		top_p: float = 0.9,
-		max_output_tokens: int = 280,
+		max_output_tokens: int = 600,
 		thinking_budget: int = 0,
 	) -> None:
 		self.client = genai.Client(api_key=api_key)
@@ -38,6 +38,20 @@ class GeminiGenerator:
 		self.max_output_tokens = max_output_tokens
 		self.thinking_budget = thinking_budget
 
+	def _build_contents(self, history: list[dict[str, str]], prompt_text: str, prefix: str = "") -> list[types.Content]:
+		contents: list[types.Content] = []
+		for turn in history:
+			role = "model" if turn.get("role") == "assistant" else "user"
+			contents.append(types.Content(role=role, parts=[types.Part.from_text(text=turn.get("content", ""))]))
+
+		contents.append(
+			types.Content(
+				role="user",
+				parts=[types.Part.from_text(text=f"{prefix}{prompt_text}")],
+			)
+		)
+		return contents
+
 	def reformulate_query(self, question: str, history: list[dict[str, str]]) -> str:
 		if not history:
 			return question
@@ -48,17 +62,7 @@ class GeminiGenerator:
 			"Respond ONLY with the rewritten question. If it is already standalone, return it as is."
 		)
 
-		contents: list[types.Content] = []
-		for turn in history:
-			role = "model" if turn.get("role") == "assistant" else "user"
-			contents.append(types.Content(role=role, parts=[types.Part.from_text(text=turn.get("content", ""))]))
-
-		contents.append(
-			types.Content(
-				role="user",
-				parts=[types.Part.from_text(text=f"Reformulate this question to be standalone: {question}")],
-			)
-		)
+		contents: list[types.Content] = self._build_contents(history, question, "Reformulate this question to be standalone: ")
 
 		config = types.GenerateContentConfig(
 			system_instruction=system_prompt,
@@ -125,24 +129,9 @@ class GeminiGenerator:
 	):
 		system_prompt = self._compose_system_prompt(preferred_language=preferred_language)
 
-		contents: list[types.Content] = []
-		for turn in history:
-			role = "model" if turn.get("role") == "assistant" else "user"
-			contents.append(types.Content(role=role, parts=[types.Part.from_text(text=turn.get("content", ""))]))
-
-		contents.append(
-			types.Content(
-				role="user",
-				parts=[
-					types.Part.from_text(
-						text=(
-							f"User Question:\n{question}\n\n"
-							f"Catalog Knowledge Context:\n{context}\n\n"
-							"Give a direct answer first, then 2-4 concise points if useful."
-						)
-					)
-				],
-			)
+		contents: list[types.Content] = self._build_contents(
+			history, 
+			f"User Question:\n{question}\n\nCatalog Knowledge Context:\n{context}\n\nGive a direct answer first, then 2-4 concise points if useful."
 		)
 
 		config = types.GenerateContentConfig(
@@ -189,24 +178,9 @@ class GeminiGenerator:
 	) -> str:
 		system_prompt = self._compose_system_prompt(preferred_language=preferred_language)
 
-		contents: list[types.Content] = []
-		for turn in history:
-			role = "model" if turn.get("role") == "assistant" else "user"
-			contents.append(types.Content(role=role, parts=[types.Part.from_text(text=turn.get("content", ""))]))
-
-		contents.append(
-			types.Content(
-				role="user",
-				parts=[
-					types.Part.from_text(
-						text=(
-							f"User Question:\n{question}\n\n"
-							f"Catalog Knowledge Context:\n{context}\n\n"
-							"Give a direct answer first, then 2-4 concise points if useful."
-						)
-					)
-				],
-			)
+		contents: list[types.Content] = self._build_contents(
+			history, 
+			f"User Question:\n{question}\n\nCatalog Knowledge Context:\n{context}\n\nGive a direct answer first, then 2-4 concise points if useful."
 		)
 
 		config = types.GenerateContentConfig(

@@ -10,7 +10,7 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 from src.config import Settings
 from src.memory.context_manager import ContextManager
 from src.memory.memory_manager import ConversationMemoryManager
-from src.rag.embeeding import GeminiEmbedder
+from src.rag.embedding import GeminiEmbedder
 from src.rag.faiss_store import FaissVectorStore
 from src.rag.generation import GeminiGenerator, GeminiRateLimitError
 from src.rag.types import DocumentChunk, RAGResponse

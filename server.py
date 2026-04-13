@@ -20,7 +20,8 @@ from typing import Annotated
 
 from src.config import load_settings
 from src.messenger.conversation_flow import ConversationFlowManager
-from src.pipeline.rag_pipepline import RAGPipeline
+from src.pipeline.rag_pipeline import RAGPipeline
+import src.whatsapp.client as wa
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -37,14 +38,20 @@ load_dotenv()
 MAX_REQUESTS_PER_MINUTE = 20
 RATE_WINDOW_SECONDS = 60
 _rate_limits: dict[str, list[float]] = {}
-conversation_flow = ConversationFlowManager()
+conversation_flow = ConversationFlowManager(state_dir="artifacts/flow_state")
 
-# WhatsApp Cloud API env vars
+# WhatsApp Cloud API env vars still needed by server.py for webhook validation
 WHATSAPP_VERIFY_TOKEN = os.getenv("WHATSAPP_VERIFY_TOKEN", "").strip()
-WHATSAPP_PHONE_NUMBER_ID = os.getenv("WHATSAPP_PHONE_NUMBER_ID", "").strip()
-WHATSAPP_ACCESS_TOKEN = os.getenv("WHATSAPP_ACCESS_TOKEN", "").strip()
-WHATSAPP_GRAPH_VERSION = os.getenv("WHATSAPP_GRAPH_VERSION", "v23.0").strip()
 WHATSAPP_APP_SECRET = os.getenv("WHATSAPP_APP_SECRET", "").strip()
+
+# Messenger (Meta) Cloud API env vars
+MESSENGER_ACCESS_TOKEN = os.getenv("MESSENGER_ACCESS_TOKEN", "").strip()
+MESSENGER_VERIFY_TOKEN = os.getenv("MESSENGER_VERIFY_TOKEN", "").strip()
+MESSENGER_GRAPH_VERSION = os.getenv("MESSENGER_GRAPH_VERSION", "v23.0").strip()
+
+# Public HTTPS base URL used when sending images to WhatsApp / Messenger
+# Example: https://wmcnc.yourdomain.com
+PUBLIC_BASE_URL = os.getenv("PUBLIC_BASE_URL", "").strip()
 
 
 def _allow_request(session_id: str) -> bool:
@@ -73,10 +80,6 @@ def _try_initialize_rag() -> bool:
         startup_error = f"{exc.__class__.__name__}: {exc}"
         logger.exception("Lazy recovery initialization failed")
         return False
-
-
-def _is_whatsapp_configured() -> bool:
-    return bool(WHATSAPP_PHONE_NUMBER_ID and WHATSAPP_ACCESS_TOKEN)
 
 
 def _verify_whatsapp_signature(raw_body: bytes, signature_header: str | None) -> bool:
@@ -117,26 +120,51 @@ def _extract_text_from_message(message: dict) -> str:
     return ""
 
 
-def _send_whatsapp_text(to_number: str, text: str) -> None:
-    if not _is_whatsapp_configured():
-        logger.error("WhatsApp env vars are missing. Cannot send message.")
+def _send_messenger_text(psid: str, text: str) -> None:
+    """Send a plain text message via Messenger Send API."""
+    if not MESSENGER_ACCESS_TOKEN:
+        logger.error("MESSENGER_ACCESS_TOKEN is missing. Cannot send Messenger message.")
         return
-
-    url = f"https://graph.facebook.com/{WHATSAPP_GRAPH_VERSION}/{WHATSAPP_PHONE_NUMBER_ID}/messages"
-    headers = {
-        "Authorization": f"Bearer {WHATSAPP_ACCESS_TOKEN}",
-        "Content-Type": "application/json",
-    }
-    payload = {
-        "messaging_product": "whatsapp",
-        "to": to_number,
-        "type": "text",
-        "text": {"body": text[:4096]},
-    }
-
-    resp = requests.post(url, headers=headers, json=payload, timeout=20)
+    url = f"https://graph.facebook.com/{MESSENGER_GRAPH_VERSION}/me/messages"
+    resp = requests.post(
+        url,
+        json={
+            "recipient": {"id": psid},
+            "message": {"text": text[:2000]},
+            "messaging_type": "RESPONSE",
+        },
+        params={"access_token": MESSENGER_ACCESS_TOKEN},
+        headers={"Content-Type": "application/json"},
+        timeout=20,
+    )
     if resp.status_code >= 300:
-        logger.error("WhatsApp send failed: status=%s body=%s", resp.status_code, resp.text)
+        logger.error("Messenger text send failed: status=%s body=%s", resp.status_code, resp.text)
+
+
+def _send_messenger_quick_replies(psid: str, text: str, options: list[dict]) -> None:
+    """Send quick reply buttons — Messenger equivalent of WhatsApp interactive buttons."""
+    if not MESSENGER_ACCESS_TOKEN:
+        logger.error("MESSENGER_ACCESS_TOKEN is missing. Cannot send Messenger quick replies.")
+        return
+    quick_replies = [
+        {"content_type": "text", "title": opt["label"], "payload": opt["value"]}
+        for opt in options
+    ]
+    url = f"https://graph.facebook.com/{MESSENGER_GRAPH_VERSION}/me/messages"
+    resp = requests.post(
+        url,
+        json={
+            "recipient": {"id": psid},
+            "message": {"text": text, "quick_replies": quick_replies},
+            "messaging_type": "RESPONSE",
+        },
+        params={"access_token": MESSENGER_ACCESS_TOKEN},
+        headers={"Content-Type": "application/json"},
+        timeout=20,
+    )
+    if resp.status_code >= 300:
+        logger.error("Messenger quick reply send failed: status=%s body=%s", resp.status_code, resp.text)
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -163,7 +191,7 @@ app = FastAPI(title="Woodmaster CNC Assistant API", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_credentials=True,
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -301,20 +329,123 @@ async def whatsapp_webhook(request: Request):
 
         session_id = f"whatsapp:{from_number}"
         if not _allow_request(session_id):
-            _send_whatsapp_text(from_number, "Too many requests. Please wait a minute and try again.")
+            await run_in_threadpool(
+                wa.send_text, from_number,
+                "Too many requests. Please wait a minute and try again."
+            )
             continue
 
+        # Step 1: Run conversation flow FIRST (greeting → language selection → chat)
+        flow_result = conversation_flow.handle_message(session_id, user_text)
+
+        if flow_result.handled:
+            await run_in_threadpool(wa.send_text, from_number, flow_result.reply)
+            # Send interactive language-selection buttons if prompted
+            if flow_result.options:
+                await run_in_threadpool(
+                    wa.send_interactive_buttons,
+                    from_number,
+                    "Please select your preferred language:",
+                    flow_result.options,
+                )
+            # Send welcome image if present (requires PUBLIC_BASE_URL to be set)
+            if flow_result.images and PUBLIC_BASE_URL:
+                for img_path in flow_result.images:
+                    public_url = f"{PUBLIC_BASE_URL}/{img_path}"
+                    await run_in_threadpool(wa.send_image, from_number, public_url)
+            continue
+
+        # Step 2: RAG query with the user's stored language preference
         try:
-            response = await run_in_threadpool(rag.query, user_text, session_id)
+            response = await run_in_threadpool(
+                rag.query, user_text, session_id, flow_result.preferred_language
+            )
             answer = (response.get("answer") or "I could not generate a response right now.").strip()
-            await run_in_threadpool(_send_whatsapp_text, from_number, answer)
+            await run_in_threadpool(wa.send_text, from_number, answer)
+            # Step 3: Send product images returned by RAG (requires PUBLIC_BASE_URL)
+            if PUBLIC_BASE_URL:
+                for img_path in response.get("images", []):
+                    public_url = f"{PUBLIC_BASE_URL}/{img_path}"
+                    await run_in_threadpool(wa.send_image, from_number, public_url)
         except Exception:
             logger.exception("WhatsApp processing failed", extra={"session_id": session_id})
             await run_in_threadpool(
-                _send_whatsapp_text,
-                from_number,
+                wa.send_text, from_number,
                 "Sorry, I hit an internal error. Please try again.",
             )
+
+    return {"status": "ok"}
+
+
+@app.get("/messenger/webhook")
+async def verify_messenger_webhook(request: Request):
+    mode = request.query_params.get("hub.mode")
+    token = request.query_params.get("hub.verify_token")
+    challenge = request.query_params.get("hub.challenge", "")
+    if mode == "subscribe" and token and token == MESSENGER_VERIFY_TOKEN:
+        return HTMLResponse(content=challenge, status_code=200)
+    return JSONResponse(status_code=403, content={"error": "Messenger webhook verification failed"})
+
+
+@app.post("/messenger/webhook")
+async def messenger_webhook(request: Request):
+    if not rag:
+        recovered = await run_in_threadpool(_try_initialize_rag)
+        if not recovered:
+            return JSONResponse(status_code=503, content={"error": "RAG pipeline unavailable"})
+
+    try:
+        payload = await request.json()
+    except Exception:
+        return JSONResponse(status_code=400, content={"error": "Invalid JSON"})
+
+    for entry in payload.get("entry", []):
+        for event in entry.get("messaging", []):
+            psid = event.get("sender", {}).get("id", "").strip()
+            msg = event.get("message", {})
+            # Handle both plain text AND quick_reply button taps
+            text = (
+                (msg.get("quick_reply") or {}).get("payload")
+                or msg.get("text")
+                or ""
+            ).strip()
+            if not psid or not text:
+                continue
+
+            session_id = f"messenger:{psid}"
+            if not _allow_request(session_id):
+                await run_in_threadpool(
+                    _send_messenger_text, psid,
+                    "Too many requests. Please wait a minute and try again."
+                )
+                continue
+
+            # Same 3-stage flow as web frontend and WhatsApp
+            flow_result = conversation_flow.handle_message(session_id, text)
+
+            if flow_result.handled:
+                if flow_result.options:
+                    # Use quick replies for language selection on Messenger
+                    await run_in_threadpool(
+                        _send_messenger_quick_replies,
+                        psid, flow_result.reply, flow_result.options,
+                    )
+                else:
+                    await run_in_threadpool(_send_messenger_text, psid, flow_result.reply)
+                continue
+
+            try:
+                response = await run_in_threadpool(
+                    rag.query, text, session_id, flow_result.preferred_language
+                )
+                answer = (response.get("answer") or "I could not generate a response.").strip()
+                await run_in_threadpool(_send_messenger_text, psid, answer)
+            except Exception:
+                logger.exception("Messenger processing failed", extra={"session_id": session_id})
+                await run_in_threadpool(
+                    _send_messenger_text, psid,
+                    "Sorry, I hit an internal error. Please try again."
+                )
 
     return {"status": "ok"}
 
