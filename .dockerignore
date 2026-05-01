@@ -1,0 +1,79 @@
+# =============================================================================
+# .dockerignore – exclude everything NOT needed inside the Docker image.
+# Anything listed here is NEVER sent to the Docker build context, which
+# (a) speeds up the build and (b) prevents secrets/dev files leaking in.
+# =============================================================================
+
+# ── Version control ───────────────────────────────────────────────────────────
+.git/
+.gitignore
+
+# ── Secret & config files (NEVER go into the image) ──────────────────────────
+.env
+.env.*
+*.pem
+*.key
+*.crt
+
+# ── Docker files themselves ───────────────────────────────────────────────────
+DockerFile
+Dockerfile
+.dockerignore
+
+# ── Local virtual environments ────────────────────────────────────────────────
+.venv/
+venv/
+env/
+woodmaster/
+
+# ── Python compiled artefacts ─────────────────────────────────────────────────
+__pycache__/
+**/__pycache__/
+*.py[cod]
+*.pyo
+*$py.class
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# ── Test suite (not needed at runtime) ────────────────────────────────────────
+tests/
+pytest.ini
+pyproject.toml
+setup.cfg
+.pytest_cache/
+.coverage
+coverage.xml
+htmlcov/
+
+# ── Development / documentation ───────────────────────────────────────────────
+README.md
+*.md
+docs/
+notebooks/
+
+# ── One-off scripts (not part of the server) ─────────────────────────────────
+send_whatsapp_welcome.py
+
+# ── Runtime-generated directories (mounted or created at startup) ─────────────
+# artifacts/ is built/created at runtime; the FAISS index is NOT baked into
+# the image (it would be rebuilt on first start or loaded from a volume).
+artifacts/
+
+# ── Data files – product images and catalog are either baked-in intentionally
+# or mounted from an external volume. Exclude them from the build context and
+# only COPY selectively in the Dockerfile if you want them baked in.
+# Uncomment the next line to EXCLUDE data/ from the image entirely
+# (use a volume mount in production instead):
+# data/
+
+# ── IDE / OS noise ────────────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db

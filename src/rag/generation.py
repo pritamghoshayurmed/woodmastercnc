@@ -11,6 +11,10 @@ class GenerationRateLimitError(RuntimeError):
 
 logger = logging.getLogger(__name__)
 
+# Maximum number of prior messages (user+assistant pairs) to send to Sarvam.
+# Each pair = 2 messages. 3 pairs = 6 messages. Keeps context window manageable.
+_MAX_HISTORY_MESSAGES = 6
+
 
 class SarvamGenerator:
 	def __init__(
@@ -34,9 +38,18 @@ class SarvamGenerator:
 		self.top_p = top_p
 		self.max_tokens = max_tokens
 
-	def _build_contents(self, history: list[dict[str, str]], prompt_text: str, prefix: str = "") -> list[dict[str, str]]:
+	def _build_contents(
+		self,
+		history: list[dict[str, str]],
+		prompt_text: str,
+		prefix: str = "",
+		max_history_messages: int = _MAX_HISTORY_MESSAGES,
+	) -> list[dict[str, str]]:
 		contents: list[dict[str, str]] = []
-		for turn in history:
+		# Cap history to prevent token-window overflow on multi-turn conversations.
+		# Taking the tail ensures we always keep the most recent context.
+		capped_history = history[-max_history_messages:] if history else []
+		for turn in capped_history:
 			role = "assistant" if turn.get("role") == "assistant" else "user"
 			contents.append({"role": role, "content": turn.get("content", "")})
 
@@ -104,7 +117,7 @@ class SarvamGenerator:
 			"- 'What is your current production volume?' "
 			"- 'Do you have an immediate timeline or budget in mind you want to share?' "
 			"CRITICAL INSTRUCTION: You must provide a conversational response. DO NOT show your thinking process or use phrases like 'Let me think'. Just provide the response directly. "
-			"CRITICAL LANGUAGE INSTRUCTION: If the user writes in Bengali or Hindi using the English script (transliterated, e.g., 'Bonglish' or 'Hinglish'), you MUST respond in that same style. For example, if asked 'apnader machine te ki EMI available ache?', answer in the same transliterated Bengali style like 'obossoi! amader machine te emi available ache'. Similarly, if asked in Hinglish, respond in Hinglish. Always match the user's script and language style."
+			"CRITICAL LANGUAGE INSTRUCTION: If the user writes in Bengali or Hindi using the English script (transliterated, e.g., 'Bonglish' or 'Hinglish'), you MUST respond in that same style. For example, if asked 'apnader machine te ki EMI available ache?', answer in the same transliterated Bengali style like 'obossoi! amader machine te emi available ache'. Similarly, if asked in Hinglish, respond in Hinglish like 'kya aplog emi pe machine dete hai ? ' Answer in transliterated language like 'hmm , hamare paas EMI option available hai ' . Always match the user's script and language style."
 		)
 
 		if preferred_language:
@@ -139,9 +152,31 @@ class SarvamGenerator:
 					top_p=self.top_p,
 					max_tokens=self.max_tokens,
 				)
-				if response.choices and response.choices[0].message.content:
-					yield response.choices[0].message.content
-				return
+				content = ""
+				if response.choices and response.choices[0].message:
+					content = (response.choices[0].message.content or "").strip()
+				if content:
+					yield content
+					return
+				# Empty content on stream — log and retry without history
+				logger.error(
+					"Sarvam returned EMPTY content on stream attempt %d/%d. "
+					"messages_count=%d. Retrying without history.",
+					attempt + 1, self.max_retries + 1, len(messages),
+				)
+				if attempt < self.max_retries:
+					# Strip history, keep only system + current user message
+					system_msgs = [m for m in messages if m.get("role") == "system"]
+					user_msgs = [m for m in messages if m.get("role") == "user"][-1:]
+					messages = system_msgs + user_msgs
+					time.sleep(self.backoff_seconds)
+					continue
+				# Still empty after retry — raise so caller uses fallback
+				raise RuntimeError("Sarvam stream returned empty content after retry.")
+			except GenerationRateLimitError:
+				raise
+			except RuntimeError:
+				raise
 			except Exception as exc:
 				error_text = str(exc)
 				is_rate_limited = "429" in error_text
@@ -153,6 +188,10 @@ class SarvamGenerator:
 					time.sleep(self.backoff_seconds * (2 ** attempt))
 					continue
 
+				logger.error(
+					"Sarvam stream exception on attempt %d/%d: %s: %s",
+					attempt + 1, self.max_retries + 1, exc.__class__.__name__, error_text,
+				)
 				raise RuntimeError(f"Sarvam generation request failed: {error_text}") from exc
 
 		raise RuntimeError("Sarvam request failed after retries.")
@@ -181,10 +220,35 @@ class SarvamGenerator:
 					top_p=self.top_p,
 					max_tokens=self.max_tokens,
 				)
-				content = (response.choices[0].message.content or "").strip()
+				content = ""
+				if response.choices and response.choices[0].message:
+					content = (response.choices[0].message.content or "").strip()
 				if not content:
-					raise ValueError("Sarvam returned an empty response.")
+					# Empty response — log details and retry without history context
+					logger.error(
+						"Sarvam returned EMPTY content on attempt %d/%d. "
+						"messages_count=%d. This causes the 'live generator' fallback.",
+						attempt + 1, self.max_retries + 1, len(messages),
+					)
+					if attempt < self.max_retries:
+						# Retry with minimal context: system prompt + current user message only
+						system_msgs = [m for m in messages if m.get("role") == "system"]
+						user_msgs = [m for m in messages if m.get("role") == "user"][-1:]
+						messages = system_msgs + user_msgs
+						logger.info(
+							"Retrying without history. Reduced messages_count=%d",
+							len(messages),
+						)
+						time.sleep(self.backoff_seconds)
+						continue
+					raise ValueError("Sarvam returned an empty response after retry.")
+				logger.info(
+					"Sarvam generate() OK on attempt %d. content_len=%d",
+					attempt + 1, len(content),
+				)
 				return content
+			except (ValueError, GenerationRateLimitError, RuntimeError):
+				raise
 			except Exception as exc:
 				error_text = str(exc)
 				is_rate_limited = "429" in error_text
@@ -196,6 +260,10 @@ class SarvamGenerator:
 					time.sleep(self.backoff_seconds * (2 ** attempt))
 					continue
 
+				logger.error(
+					"Sarvam generate() exception on attempt %d/%d: %s: %s",
+					attempt + 1, self.max_retries + 1, exc.__class__.__name__, error_text,
+				)
 				raise RuntimeError(f"Sarvam generation request failed: {error_text}") from exc
 
 		raise RuntimeError("Sarvam request failed after retries.")
