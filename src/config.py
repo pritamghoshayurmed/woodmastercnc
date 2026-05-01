@@ -8,6 +8,7 @@ from pathlib import Path
 @dataclass(frozen=True)
 class Settings:
     gemini_api_key: str
+    sarvam_api_key: str
     gemini_embedding_model: str
     gemini_generation_model: str
     gemini_timeout_seconds: int
@@ -40,8 +41,13 @@ def load_settings() -> Settings:
     if not gemini_api_key:
         raise ValueError("GEMINI_API_KEY is missing in environment.")
 
+    sarvam_api_key = os.getenv("SARVAM_API_KEY", "").strip()
+    if not sarvam_api_key:
+        raise ValueError("SARVAM_API_KEY is missing in environment.")
+
     return Settings(
         gemini_api_key=gemini_api_key,
+        sarvam_api_key=sarvam_api_key,
         gemini_embedding_model=os.getenv("GEMINI_EMBEDDING_MODEL", "models/gemini-embedding-001"),
         gemini_generation_model=os.getenv("GEMINI_GENERATION_MODEL", "gemini-2.5-flash"),
         gemini_timeout_seconds=int(os.getenv("GEMINI_TIMEOUT_SECONDS", "25")),

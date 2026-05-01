@@ -3,31 +3,28 @@ from __future__ import annotations
 import logging
 import time
 
-from google import genai
-from google.genai import types
+from sarvamai import SarvamAI
 
-
-class GeminiRateLimitError(RuntimeError):
+class GenerationRateLimitError(RuntimeError):
 	pass
 
 
 logger = logging.getLogger(__name__)
 
 
-class GeminiGenerator:
+class SarvamGenerator:
 	def __init__(
 		self,
 		api_key: str,
-		model: str,
+		model: str = "sarvam-30b",
 		timeout: int = 25,
 		max_retries: int = 1,
 		backoff_seconds: float = 0.6,
-		temperature: float = 0.35,
-		top_p: float = 0.9,
-		max_output_tokens: int = 600,
-		thinking_budget: int = 0,
+		temperature: float = 0.2,
+		top_p: float = 1.0,
+		max_tokens: int = 1500,
 	) -> None:
-		self.client = genai.Client(api_key=api_key)
+		self.client = SarvamAI(api_subscription_key=api_key)
 		self.api_key = api_key
 		self.model = model
 		self.timeout = timeout
@@ -35,20 +32,19 @@ class GeminiGenerator:
 		self.backoff_seconds = backoff_seconds
 		self.temperature = temperature
 		self.top_p = top_p
-		self.max_output_tokens = max_output_tokens
-		self.thinking_budget = thinking_budget
+		self.max_tokens = max_tokens
 
-	def _build_contents(self, history: list[dict[str, str]], prompt_text: str, prefix: str = "") -> list[types.Content]:
-		contents: list[types.Content] = []
+	def _build_contents(self, history: list[dict[str, str]], prompt_text: str, prefix: str = "") -> list[dict[str, str]]:
+		contents: list[dict[str, str]] = []
 		for turn in history:
-			role = "model" if turn.get("role") == "assistant" else "user"
-			contents.append(types.Content(role=role, parts=[types.Part.from_text(text=turn.get("content", ""))]))
+			role = "assistant" if turn.get("role") == "assistant" else "user"
+			contents.append({"role": role, "content": turn.get("content", "")})
 
 		contents.append(
-			types.Content(
-				role="user",
-				parts=[types.Part.from_text(text=f"{prefix}{prompt_text}")],
-			)
+			{
+				"role": "user",
+				"content": f"{prefix}{prompt_text}",
+			}
 		)
 		return contents
 
@@ -62,20 +58,18 @@ class GeminiGenerator:
 			"Respond ONLY with the rewritten question. If it is already standalone, return it as is."
 		)
 
-		contents: list[types.Content] = self._build_contents(history, question, "Reformulate this question to be standalone: ")
+		contents = self._build_contents(history, question, "Reformulate this question to be standalone: ")
+		messages = [{"role": "system", "content": system_prompt}] + contents
 
-		config = types.GenerateContentConfig(
-			system_instruction=system_prompt,
-			temperature=0.1,
-			max_output_tokens=100,
-		)
 		try:
-			response = self.client.models.generate_content(
+			response = self.client.chat.completions(
 				model=self.model,
-				contents=contents,
-				config=config,
+				messages=messages,
+				temperature=0.1,
+				top_p=1.0,
+				max_tokens=500,
 			)
-			return (response.text or question).strip()
+			return (response.choices[0].message.content or question).strip()
 		except Exception as exc:
 			logger.warning("Query reformulation failed; using original question", extra={"error_type": exc.__class__.__name__})
 			return question
@@ -100,7 +94,6 @@ class GeminiGenerator:
 			"11. Service Centers: Confirm our service center availability. "
 			"12. Spare Parts: Reassure them that spare parts are easily available directly with us. "
 			"13. Motto: Share the company's core motto to build brand prestige. "
-			"14. Origin (China etc.): Confidently state the origin (e.g., proudly manufactured/assembled, not just standard Chinese imports) as per catalog facts. "
 			"15. Electric: Confirm it runs on electricity. "
 			"16. 220V vs others: Clarify the phase/voltage requirements based on the specific model. "
 			"IMPORTANT: Keep your answers very concise and punchy to respond quickly. "
@@ -110,6 +103,8 @@ class GeminiGenerator:
 			"- 'Are you starting a new business or upgrading an existing operation?' "
 			"- 'What is your current production volume?' "
 			"- 'Do you have an immediate timeline or budget in mind you want to share?' "
+			"CRITICAL INSTRUCTION: You must provide a conversational response. DO NOT show your thinking process or use phrases like 'Let me think'. Just provide the response directly. "
+			"CRITICAL LANGUAGE INSTRUCTION: If the user writes in Bengali or Hindi using the English script (transliterated, e.g., 'Bonglish' or 'Hinglish'), you MUST respond in that same style. For example, if asked 'apnader machine te ki EMI available ache?', answer in the same transliterated Bengali style like 'obossoi! amader machine te emi available ache'. Similarly, if asked in Hinglish, respond in Hinglish. Always match the user's script and language style."
 		)
 
 		if preferred_language:
@@ -129,45 +124,38 @@ class GeminiGenerator:
 	):
 		system_prompt = self._compose_system_prompt(preferred_language=preferred_language)
 
-		contents: list[types.Content] = self._build_contents(
+		contents = self._build_contents(
 			history, 
 			f"User Question:\n{question}\n\nCatalog Knowledge Context:\n{context}\n\nGive a direct answer first, then 2-4 concise points if useful."
 		)
-
-		config = types.GenerateContentConfig(
-			system_instruction=system_prompt,
-			temperature=self.temperature,
-			top_p=self.top_p,
-			max_output_tokens=self.max_output_tokens,
-			thinking_config=types.ThinkingConfig(thinking_budget=self.thinking_budget),
-		)
+		messages = [{"role": "system", "content": system_prompt}] + contents
 
 		for attempt in range(self.max_retries + 1):
 			try:
-				response_stream = self.client.models.generate_content_stream(
+				response = self.client.chat.completions(
 					model=self.model,
-					contents=contents,
-					config=config,
+					messages=messages,
+					temperature=self.temperature,
+					top_p=self.top_p,
+					max_tokens=self.max_tokens,
 				)
-				for chunk in response_stream:
-					if chunk.text:
-						yield chunk.text
+				if response.choices and response.choices[0].message.content:
+					yield response.choices[0].message.content
 				return
 			except Exception as exc:
 				error_text = str(exc)
-				is_rate_limited = "429" in error_text or "RESOURCE_EXHAUSTED" in error_text
-				is_retriable_server = any(code in error_text for code in ["500", "502", "503", "504", "UNAVAILABLE", "DEADLINE_EXCEEDED"])
+				is_rate_limited = "429" in error_text
 
 				if is_rate_limited and attempt >= self.max_retries:
-					raise GeminiRateLimitError("Gemini rate limit reached (HTTP 429 / RESOURCE_EXHAUSTED).") from exc
+					raise GenerationRateLimitError("Sarvam rate limit reached (HTTP 429).") from exc
 
-				if (is_rate_limited or is_retriable_server) and attempt < self.max_retries:
+				if is_rate_limited and attempt < self.max_retries:
 					time.sleep(self.backoff_seconds * (2 ** attempt))
 					continue
 
-				raise RuntimeError(f"Gemini generation request failed: {error_text}") from exc
+				raise RuntimeError(f"Sarvam generation request failed: {error_text}") from exc
 
-		raise RuntimeError("Gemini request failed after retries.")
+		raise RuntimeError("Sarvam request failed after retries.")
 
 	def generate(
 		self,
@@ -178,43 +166,36 @@ class GeminiGenerator:
 	) -> str:
 		system_prompt = self._compose_system_prompt(preferred_language=preferred_language)
 
-		contents: list[types.Content] = self._build_contents(
+		contents = self._build_contents(
 			history, 
 			f"User Question:\n{question}\n\nCatalog Knowledge Context:\n{context}\n\nGive a direct answer first, then 2-4 concise points if useful."
 		)
-
-		config = types.GenerateContentConfig(
-			system_instruction=system_prompt,
-			temperature=self.temperature,
-			top_p=self.top_p,
-			max_output_tokens=self.max_output_tokens,
-			thinking_config=types.ThinkingConfig(thinking_budget=self.thinking_budget),
-		)
+		messages = [{"role": "system", "content": system_prompt}] + contents
 
 		for attempt in range(self.max_retries + 1):
 			try:
-				response = self.client.models.generate_content(
+				response = self.client.chat.completions(
 					model=self.model,
-					contents=contents,
-					config=config,
+					messages=messages,
+					temperature=self.temperature,
+					top_p=self.top_p,
+					max_tokens=self.max_tokens,
 				)
-				content = (response.text or "").strip()
+				content = (response.choices[0].message.content or "").strip()
 				if not content:
-					raise ValueError("Gemini returned an empty response.")
+					raise ValueError("Sarvam returned an empty response.")
 				return content
 			except Exception as exc:
 				error_text = str(exc)
-				is_rate_limited = "429" in error_text or "RESOURCE_EXHAUSTED" in error_text
-				is_retriable_server = any(code in error_text for code in ["500", "502", "503", "504", "UNAVAILABLE", "DEADLINE_EXCEEDED"])
+				is_rate_limited = "429" in error_text
 
 				if is_rate_limited and attempt >= self.max_retries:
-					raise GeminiRateLimitError("Gemini rate limit reached (HTTP 429 / RESOURCE_EXHAUSTED).") from exc
+					raise GenerationRateLimitError("Sarvam rate limit reached (HTTP 429).") from exc
 
-				if (is_rate_limited or is_retriable_server) and attempt < self.max_retries:
+				if is_rate_limited and attempt < self.max_retries:
 					time.sleep(self.backoff_seconds * (2 ** attempt))
 					continue
 
-				raise RuntimeError(f"Gemini generation request failed: {error_text}") from exc
+				raise RuntimeError(f"Sarvam generation request failed: {error_text}") from exc
 
-		raise RuntimeError("Gemini request failed after retries.")
-
+		raise RuntimeError("Sarvam request failed after retries.")

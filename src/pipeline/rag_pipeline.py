@@ -12,7 +12,7 @@ from src.memory.context_manager import ContextManager
 from src.memory.memory_manager import ConversationMemoryManager
 from src.rag.embedding import GeminiEmbedder
 from src.rag.faiss_store import FaissVectorStore
-from src.rag.generation import GeminiGenerator, GeminiRateLimitError
+from src.rag.generation import SarvamGenerator, GenerationRateLimitError
 from src.rag.types import DocumentChunk, RAGResponse
 
 
@@ -23,16 +23,15 @@ class RAGPipeline:
 			api_key=settings.gemini_api_key,
 			model=settings.gemini_embedding_model,
 		)
-		self.generator = GeminiGenerator(
-			api_key=settings.gemini_api_key,
-			model=settings.gemini_generation_model,
+		self.generator = SarvamGenerator(
+			api_key=settings.sarvam_api_key,
+			model="sarvam-30b",
 			timeout=settings.gemini_timeout_seconds,
 			max_retries=settings.gemini_max_retries,
 			backoff_seconds=settings.gemini_backoff_seconds,
-			temperature=settings.gemini_temperature,
-			top_p=settings.gemini_top_p,
-			max_output_tokens=settings.gemini_max_output_tokens,
-			thinking_budget=settings.gemini_thinking_budget,
+			temperature=0.2,
+			top_p=1.0,
+			max_tokens=1500,
 		)
 		self.vector_store = FaissVectorStore(
 			index_path=settings.faiss_index_path,
@@ -86,7 +85,7 @@ class RAGPipeline:
 				history=recent_history,
 				preferred_language=preferred_language,
 			)
-		except GeminiRateLimitError:
+		except GenerationRateLimitError:
 			answer = self._build_fallback_answer(question=question, retrieved=retrieved, rate_limited=True)
 		except Exception as exc:
 			answer = self._build_fallback_answer(question=question, retrieved=retrieved, rate_limited=False, error_message=str(exc))
@@ -162,7 +161,7 @@ class RAGPipeline:
 			):
 				full_answer += text_chunk
 				yield {"type": "chunk", "content": text_chunk}
-		except GeminiRateLimitError:
+		except GenerationRateLimitError:
 			fallback = self._build_fallback_answer(question=question, retrieved=retrieved, rate_limited=True)
 			full_answer = fallback
 			yield {"type": "chunk", "content": fallback}
