@@ -288,25 +288,16 @@ class RAGPipeline:
 		rate_limited: bool,
 		error_message: str | None = None,
 	) -> str:
-		if not retrieved:
-			if rate_limited:
-				return (
-					"I couldn't reach Gemini right now because of temporary traffic limits. "
-					"Please try again in a few seconds."
-				)
-			return "I couldn't generate a full answer right now. Please try once more in a moment."
-
-		snippets: list[str] = []
-		for item in retrieved[:2]:
-			text = item.chunk.text.strip().replace("\n", " ")
-			snippets.append(text[:220])
-
-		intro = (
-			"The live model is busy, but here's what I found in your catalog:"
-			if rate_limited
-			else "I couldn't reach the live generator, but here's what I found in your catalog:"
+		contact_info = "If you have specific or urgent queries, please contact us at email: sales@woodmaster.com or phone: +91-XXXXX-XXXXX."
+		
+		if rate_limited:
+			return (
+				"The live model is currently experiencing heavy traffic. Please try again in a few seconds. "
+				f"{contact_info}"
+			)
+			
+		return (
+			"I am taking the cold start, please wait for 5-10 seconds to start getting responses. "
+			f"{contact_info}"
 		)
-
-		combined = "\n".join(f"- {snippet}" for snippet in snippets)
-		return f"{intro}\n{combined}"
 
