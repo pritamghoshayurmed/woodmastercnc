@@ -59,6 +59,24 @@ class SarvamGenerator:
         content = getattr(message, "content", None) if message else None
         return cls._clean_response_text(content)
 
+    @staticmethod
+    def _finish_reason(response: Any) -> str:
+        choices = getattr(response, "choices", None) or []
+        if not choices:
+            return ""
+        return str(getattr(choices[0], "finish_reason", "") or "").strip().lower()
+
+    @staticmethod
+    def _looks_incomplete(text: str) -> bool:
+        if not text:
+            return True
+
+        stripped = text.rstrip()
+        if len(stripped) < 40:
+            return False
+
+        return stripped[-1] not in {".", "!", "?", '"', "'", ")", "]"}
+
     def reformulate_query(self, question: str, history: List[Dict[str, str]]) -> str:
         if not history:
             return question
@@ -124,16 +142,31 @@ class SarvamGenerator:
 
         for model_name in models_to_try:
             try:
-                response = self.client.chat.completions(
-                    model=model_name,
-                    messages=messages,
-                    temperature=self.temperature,
-                    top_p=self.top_p,
-                    max_tokens=self.max_tokens,
-                )
-                content = self._extract_message_text(response)
-                if content:
-                    return content
+                max_tokens = self.max_tokens
+                for attempt in range(2):
+                    response = self.client.chat.completions(
+                        model=model_name,
+                        messages=messages,
+                        temperature=self.temperature,
+                        top_p=self.top_p,
+                        max_tokens=max_tokens,
+                    )
+                    content = self._extract_message_text(response)
+                    finish_reason = self._finish_reason(response)
+
+                    if content and finish_reason != "length" and not self._looks_incomplete(content):
+                        return content
+
+                    if content and finish_reason != "length" and attempt == 1:
+                        return content
+
+                    if attempt == 0:
+                        max_tokens = min(max_tokens * 2, 480)
+                        continue
+
+                    if content:
+                        return content
+
                 raise ValueError(f"Sarvam returned no final answer text for model {model_name}.")
             except Exception as exc:
                 last_error = exc

@@ -149,7 +149,12 @@ class ConversationFlowManager:
             state["language"] = selected_language
             self._save_state(session_id)
 
-            welcome = f"Great. We will continue in {selected_language}. What type of CNC machine are you looking for?"
+            if selected_language == "Bengali":
+                welcome = "দারুণ। আমরা এখন বাংলায় কথা বলব। আপনি কী ধরনের CNC মেশিন খুঁজছেন?"
+            elif selected_language == "Hindi":
+                welcome = "बहुत बढ़िया। अब हम हिंदी में बात करेंगे। आप किस प्रकार की CNC मशीन ढूंढ रहे हैं?"
+            else:
+                welcome = "Great. We will continue in English. What type of CNC machine are you looking for?"
             return FlowResponse(
                 handled=True,
                 reply=welcome,
