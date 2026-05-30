@@ -1,9 +1,6 @@
-faiss-cpu
-numpy
 python-dotenv
 requests
-google-genai
-langchain-text-splitters
-fastapi 
+fastapi
 uvicorn
 cryptography
+sarvamai

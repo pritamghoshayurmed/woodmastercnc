@@ -13,22 +13,28 @@ import requests
 
 logger = logging.getLogger(__name__)
 
-PHONE_NUMBER_ID = os.getenv("WHATSAPP_PHONE_NUMBER_ID", "").strip()
-ACCESS_TOKEN = os.getenv("WHATSAPP_ACCESS_TOKEN", "").strip()
-GRAPH_VERSION = os.getenv("WHATSAPP_GRAPH_VERSION", "v23.0").strip()
+
+def _settings() -> tuple[str, str, str]:
+    phone_number_id = os.getenv("WHATSAPP_PHONE_NUMBER_ID", "").strip()
+    access_token = os.getenv("WHATSAPP_ACCESS_TOKEN", "").strip()
+    graph_version = os.getenv("WHATSAPP_GRAPH_VERSION", "v23.0").strip()
+    return phone_number_id, access_token, graph_version
 
 
 def is_configured() -> bool:
-    return bool(PHONE_NUMBER_ID and ACCESS_TOKEN)
+    phone_number_id, access_token, _ = _settings()
+    return bool(phone_number_id and access_token)
 
 
 def _base_url() -> str:
-    return f"https://graph.facebook.com/{GRAPH_VERSION}/{PHONE_NUMBER_ID}/messages"
+    phone_number_id, _, graph_version = _settings()
+    return f"https://graph.facebook.com/{graph_version}/{phone_number_id}/messages"
 
 
 def _headers() -> dict[str, str]:
+    _, access_token, _ = _settings()
     return {
-        "Authorization": f"Bearer {ACCESS_TOKEN}",
+        "Authorization": f"Bearer {access_token}",
         "Content-Type": "application/json",
     }
 
@@ -79,7 +85,7 @@ def send_interactive_buttons(to_number: str, body_text: str, options: list[dict]
         logger.error("WhatsApp env vars missing — cannot send interactive message.")
         return
     buttons = [
-        {"type": "reply", "reply": {"id": opt["value"], "title": opt["label"]}}
+        {"type": "reply", "reply": {"id": str(opt["value"])[:256], "title": str(opt["label"])[:20]}}
         for opt in options[:3]
     ]
     resp = requests.post(

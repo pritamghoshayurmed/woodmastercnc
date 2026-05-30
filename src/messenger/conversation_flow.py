@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -12,8 +13,8 @@ logger = logging.getLogger(__name__)
 
 LANGUAGE_OPTIONS: list[dict[str, str]] = [
     {"label": "English", "value": "english"},
-    {"label": "हिंदी", "value": "hindi"},
-    {"label": "বাংলা", "value": "bengali"},
+    {"label": "Hindi", "value": "hindi"},
+    {"label": "Bengali", "value": "bengali"},
 ]
 
 
@@ -24,34 +25,20 @@ class FlowResponse:
     options: list[dict[str, str]] | None = None
     images: list[str] | None = None
     preferred_language: str | None = None
+    timeout_occurred: bool = False
 
 
 class ConversationFlowManager:
-    """
-    Manages the multi-stage conversation flow:
-      1. awaiting_greeting  → user must say hi
-      2. awaiting_language  → user picks language
-      3. chatting           → RAG pipeline takes over
-
-    State is persisted to JSON files so it survives server restarts.
-    Works identically for web, WhatsApp, and Messenger sessions.
-    """
-
     def __init__(self, state_dir: str | Path = "artifacts/flow_state") -> None:
         self._session_state: dict[str, dict[str, Any]] = {}
         self._state_dir = Path(state_dir)
         self._state_dir.mkdir(parents=True, exist_ok=True)
-
-    # ------------------------------------------------------------------
-    # State persistence helpers
-    # ------------------------------------------------------------------
 
     def _state_file(self, session_id: str) -> Path:
         safe = re.sub(r"[^a-zA-Z0-9_-]", "-", session_id)[:60]
         return self._state_dir / f"{safe}.json"
 
     def _get_state(self, session_id: str) -> dict[str, Any]:
-        """Load state from memory-cache or disk, creating a fresh state if missing."""
         if session_id in self._session_state:
             return self._session_state[session_id]
 
@@ -63,8 +50,9 @@ class ConversationFlowManager:
                 return data
             except (json.JSONDecodeError, OSError) as exc:
                 logger.warning(
-                    "Failed to load flow state for %s: %s — resetting to fresh state.",
-                    session_id, exc,
+                    "Failed to load flow state for %s: %s - resetting to fresh state.",
+                    session_id,
+                    exc,
                 )
 
         default: dict[str, Any] = {"stage": "awaiting_greeting", "language": None}
@@ -72,7 +60,6 @@ class ConversationFlowManager:
         return default
 
     def _save_state(self, session_id: str) -> None:
-        """Persist the current state of this session to disk."""
         state_file = self._state_file(session_id)
         try:
             state_file.write_text(
@@ -82,16 +69,12 @@ class ConversationFlowManager:
         except OSError as exc:
             logger.warning("Failed to persist flow state for %s: %s", session_id, exc)
 
-    # ------------------------------------------------------------------
-    # Message parsing helpers
-    # ------------------------------------------------------------------
-
     @staticmethod
     def _is_greeting(message: str) -> bool:
         normalized = message.strip().lower()
         greetings = {
             "hi", "hello", "hey", "hii", "helo",
-            "namaste", "namaskar", "নমস্কার", "হাই", "hola",
+            "namaste", "namaskar", "hola",
             "start", "begin", "menu",
         }
         if normalized in greetings:
@@ -103,73 +86,75 @@ class ConversationFlowManager:
         normalized = message.strip().lower()
         if normalized in {"english", "eng", "en"}:
             return "English"
-        if normalized in {"hindi", "hin", "hi", "हिन्दी", "हिंदी"}:
+        if normalized in {"hindi", "hin", "hi"}:
             return "Hindi"
-        if normalized in {"bengali", "bangla", "bn", "বাংলা", "বাঙালি"}:
+        if normalized in {"bengali", "bangla", "bn"}:
             return "Bengali"
         return None
 
-    # ------------------------------------------------------------------
-    # Main entry point
-    # ------------------------------------------------------------------
-
     def handle_message(self, session_id: str, message: str) -> FlowResponse:
         state = self._get_state(session_id)
+
+        now = time.time()
+        last_active = state.get("last_active", now)
+
+        timeout_occurred = False
+        if now - last_active > 900:
+            timeout_occurred = True
+            state = {"stage": "awaiting_greeting", "language": None, "last_active": now}
+            self._session_state[session_id] = state
+
+        state["last_active"] = now
+        self._save_state(session_id)
+
         stage = state["stage"]
 
-        # ── Stage 1: awaiting greeting ─────────────────────────────────
         if stage == "awaiting_greeting":
-            if not self._is_greeting(message):
+            if self._is_greeting(message):
+                state["stage"] = "awaiting_language"
+                self._save_state(session_id)
                 return FlowResponse(
                     handled=True,
-                    reply="Please send Hi to start the Woodmaster CNC assistant.",
+                    reply="Welcome to Woodmaster CNC. Please choose your preferred language.",
+                    options=LANGUAGE_OPTIONS,
+                    images=["data/images/welcome_message_session_start.png"],
+                    timeout_occurred=timeout_occurred,
                 )
 
-            state["stage"] = "awaiting_language"
+            state["stage"] = "chatting"
+            state["language"] = None
             self._save_state(session_id)
             return FlowResponse(
-                handled=True,
-                reply="Dear Customer,\n\nTo begin, please first select your language.",
-                options=LANGUAGE_OPTIONS,
+                handled=False,
+                reply="Welcome to Woodmaster CNC Assistant. I can help with your machine-related query.",
                 images=["data/images/welcome_message_session_start.png"],
+                timeout_occurred=timeout_occurred,
+                preferred_language=None,
             )
 
-        # ── Stage 2: awaiting language selection ───────────────────────
         if stage == "awaiting_language":
             selected_language = self._parse_language(message)
             if not selected_language:
+                state["stage"] = "chatting"
+                state["language"] = None
+                self._save_state(session_id)
                 return FlowResponse(
-                    handled=True,
-                    reply="Please choose a language: English, Hindi, or Bengali.",
-                    options=LANGUAGE_OPTIONS,
+                    handled=False,
+                    reply="Okay, I will help you directly.",
+                    timeout_occurred=timeout_occurred,
+                    preferred_language=None,
                 )
 
             state["stage"] = "chatting"
             state["language"] = selected_language
             self._save_state(session_id)
 
-            if selected_language == "Hindi":
-                welcome = (
-                    "बहुत बढ़िया। अब हम हिंदी में बात करेंगे। "
-                    "आप किस तरह की CNC मशीन देख रहे हैं?"
-                )
-            elif selected_language == "Bengali":
-                welcome = (
-                    "দারুণ। এখন আমরা বাংলায় কথা বলব। "
-                    "আপনি কী ধরনের CNC মেশিন খুঁজছেন?"
-                )
-            else:
-                welcome = (
-                    "Great. We will continue in English. "
-                    "What type of CNC machine are you looking for?"
-                )
-
+            welcome = f"Great. We will continue in {selected_language}. What type of CNC machine are you looking for?"
             return FlowResponse(
                 handled=True,
                 reply=welcome,
                 preferred_language=selected_language,
             )
 
-        # ── Stage 3: chatting — hand off to RAG pipeline ───────────────
         language = state.get("language")
         return FlowResponse(handled=False, preferred_language=language)

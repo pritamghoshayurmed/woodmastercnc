@@ -21,6 +21,7 @@ from typing import Annotated
 from src.config import load_settings
 from src.messenger.conversation_flow import ConversationFlowManager
 from src.pipeline.rag_pipeline import RAGPipeline
+from src.whatsapp.dedupe import RecentMessageCache
 import src.whatsapp.client as wa
 
 logging.basicConfig(level=logging.INFO)
@@ -39,6 +40,8 @@ MAX_REQUESTS_PER_MINUTE = 20
 RATE_WINDOW_SECONDS = 60
 _rate_limits: dict[str, list[float]] = {}
 conversation_flow = ConversationFlowManager(state_dir="artifacts/flow_state")
+recent_whatsapp_messages = RecentMessageCache(ttl_seconds=300)
+recent_messenger_messages = RecentMessageCache(ttl_seconds=300)
 
 # WhatsApp Cloud API env vars still needed by server.py for webhook validation
 WHATSAPP_VERIFY_TOKEN = os.getenv("WHATSAPP_VERIFY_TOKEN", "").strip()
@@ -107,6 +110,19 @@ def _extract_whatsapp_messages(payload: dict) -> list[dict]:
     return items
 
 
+def _is_duplicate_whatsapp_message(session_id: str, message: dict) -> bool:
+    message_id = str(message.get("id") or "").strip()
+    text = _extract_text_from_message(message)
+    dedupe_key = message_id or f"{session_id}:{text.lower()}"
+    return recent_whatsapp_messages.seen_recently(dedupe_key)
+
+
+def _is_duplicate_messenger_message(session_id: str, event: dict, text: str) -> bool:
+    message_id = str((event.get("message") or {}).get("mid") or "").strip()
+    dedupe_key = message_id or f"{session_id}:{text.lower()}"
+    return recent_messenger_messages.seen_recently(dedupe_key)
+
+
 def _extract_text_from_message(message: dict) -> str:
     mtype = message.get("type")
     if mtype == "text":
@@ -118,6 +134,25 @@ def _extract_text_from_message(message: dict) -> str:
         if "list_reply" in interactive:
             return (interactive["list_reply"].get("title") or "").strip()
     return ""
+
+
+async def _send_public_images_whatsapp(to_number: str, image_paths: list[str]) -> None:
+    if not PUBLIC_BASE_URL:
+        return
+    base_url = PUBLIC_BASE_URL.rstrip("/")
+    for img_path in image_paths:
+        public_url = f"{base_url}/{img_path}"
+        await run_in_threadpool(wa.send_image, to_number, public_url)
+
+
+async def _send_whatsapp_flow_response(to_number: str, reply: str, options: list[dict] | None, images: list[str] | None) -> None:
+    if options:
+        await run_in_threadpool(wa.send_interactive_buttons, to_number, reply, options)
+    elif reply:
+        await run_in_threadpool(wa.send_text, to_number, reply)
+
+    if images:
+        await _send_public_images_whatsapp(to_number, images)
 
 
 def _send_messenger_text(psid: str, text: str) -> None:
@@ -249,6 +284,10 @@ async def handle_webhook(req: WebhookRequest):
         )
 
     flow_result = conversation_flow.handle_message(req.session_id, req.message)
+    
+    if flow_result.timeout_occurred and rag:
+        rag.memory_manager.clear(req.session_id)
+
     if flow_result.handled:
         return {
             "session_id": req.session_id,
@@ -266,11 +305,17 @@ async def handle_webhook(req: WebhookRequest):
             flow_result.preferred_language,
         )
         
+        final_reply = response.get("answer", "")
+        if flow_result.reply:
+            final_reply = f"{flow_result.reply}\n\n{final_reply}"
+            
+        final_images = (flow_result.images or []) + response.get("images", [])
+
         # response should contain 'answer', 'sources', 'images'
         return {
             "session_id": req.session_id,
-            "reply": response.get("answer", ""),
-            "images": response.get("images", []),
+            "reply": final_reply.strip(),
+            "images": final_images,
             "options": [],
             "metadata": response.get("retrieval", [])
         }
@@ -322,12 +367,14 @@ async def whatsapp_webhook(request: Request):
         from_number = str(message.get("from", "")).strip()
         if not from_number:
             continue
+        session_id = f"whatsapp:{from_number}"
+        if _is_duplicate_whatsapp_message(session_id, message):
+            continue
 
         user_text = _extract_text_from_message(message)
         if not user_text:
             continue
 
-        session_id = f"whatsapp:{from_number}"
         if not _allow_request(session_id):
             await run_in_threadpool(
                 wa.send_text, from_number,
@@ -338,21 +385,20 @@ async def whatsapp_webhook(request: Request):
         # Step 1: Run conversation flow FIRST (greeting → language selection → chat)
         flow_result = conversation_flow.handle_message(session_id, user_text)
 
-        if flow_result.handled:
+        if flow_result.timeout_occurred and rag:
+            rag.memory_manager.clear(session_id)
+
+        if flow_result.reply and not flow_result.handled:
             await run_in_threadpool(wa.send_text, from_number, flow_result.reply)
-            # Send interactive language-selection buttons if prompted
-            if flow_result.options:
-                await run_in_threadpool(
-                    wa.send_interactive_buttons,
-                    from_number,
-                    "Please select your preferred language:",
-                    flow_result.options,
-                )
-            # Send welcome image if present (requires PUBLIC_BASE_URL to be set)
-            if flow_result.images and PUBLIC_BASE_URL:
-                for img_path in flow_result.images:
-                    public_url = f"{PUBLIC_BASE_URL}/{img_path}"
-                    await run_in_threadpool(wa.send_image, from_number, public_url)
+            await _send_public_images_whatsapp(from_number, flow_result.images or [])
+
+        if flow_result.handled:
+            await _send_whatsapp_flow_response(
+                from_number,
+                flow_result.reply,
+                flow_result.options,
+                flow_result.images,
+            )
             continue
 
         # Step 2: RAG query with the user's stored language preference
@@ -362,11 +408,7 @@ async def whatsapp_webhook(request: Request):
             )
             answer = (response.get("answer") or "I could not generate a response right now.").strip()
             await run_in_threadpool(wa.send_text, from_number, answer)
-            # Step 3: Send product images returned by RAG (requires PUBLIC_BASE_URL)
-            if PUBLIC_BASE_URL:
-                for img_path in response.get("images", []):
-                    public_url = f"{PUBLIC_BASE_URL}/{img_path}"
-                    await run_in_threadpool(wa.send_image, from_number, public_url)
+            await _send_public_images_whatsapp(from_number, response.get("images", []))
         except Exception:
             logger.exception("WhatsApp processing failed", extra={"session_id": session_id})
             await run_in_threadpool(
@@ -413,6 +455,8 @@ async def messenger_webhook(request: Request):
                 continue
 
             session_id = f"messenger:{psid}"
+            if _is_duplicate_messenger_message(session_id, event, text):
+                continue
             if not _allow_request(session_id):
                 await run_in_threadpool(
                     _send_messenger_text, psid,
@@ -422,6 +466,15 @@ async def messenger_webhook(request: Request):
 
             # Same 3-stage flow as web frontend and WhatsApp
             flow_result = conversation_flow.handle_message(session_id, text)
+
+            if flow_result.timeout_occurred and rag:
+                rag.memory_manager.clear(session_id)
+
+            if flow_result.reply and not flow_result.handled:
+                # We have a greeting to send before the RAG generated answer
+                await run_in_threadpool(_send_messenger_text, psid, flow_result.reply)
+                # Note: Currently not sending images for Messenger early-greeting as it is basic,
+                # but could be added similar to WhatsApp.
 
             if flow_result.handled:
                 if flow_result.options:

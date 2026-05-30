@@ -82,11 +82,26 @@ class ConversationMemoryManager:
 				for item in data:
 					history.append(item)
 			except (OSError, json.JSONDecodeError, RuntimeError) as exc:
-				logger.exception("Failed to load session history", extra={"session_id": session_id, "file": str(session_file)})
-				raise RuntimeError(f"Unable to load session '{session_id}'.") from exc
+				logger.warning(
+					"Failed to load session history; starting a fresh session instead.",
+					extra={"session_id": session_id, "file": str(session_file), "error_type": exc.__class__.__name__},
+				)
+				self._archive_unreadable_session(session_file)
 		
 		self._sessions[session_id] = history
 		return history
+
+	def _archive_unreadable_session(self, session_file: Path) -> None:
+		if not session_file.exists():
+			return
+
+		backup_path = session_file.with_suffix(f"{session_file.suffix}.invalid")
+		try:
+			if backup_path.exists():
+				backup_path.unlink()
+			session_file.replace(backup_path)
+		except OSError:
+			logger.warning("Failed to archive unreadable session file", extra={"file": str(session_file)})
 
 	def _save_session(self, session_id: str) -> None:
 		session_file = self._get_session_file(session_id)
@@ -98,18 +113,51 @@ class ConversationMemoryManager:
 			logger.exception("Failed to save session history", extra={"session_id": session_id, "file": str(session_file)})
 			raise RuntimeError(f"Unable to persist session '{session_id}'.") from exc
 
-	def add_user_message(self, session_id: str, message: str) -> None:
+	@staticmethod
+	def _normalize_message(message: str) -> str:
+		return re.sub(r"\s+", " ", message).strip()
+
+	def _append_message(self, session_id: str, role: str, message: str) -> None:
+		normalized = self._normalize_message(message)
+		if not normalized:
+			return
+
 		history = self._load_session(session_id)
-		history.append({"role": "user", "content": message})
+		if history and history[-1].get("role") == role and history[-1].get("content") == normalized:
+			return
+
+		history.append({"role": role, "content": normalized})
 		self._save_session(session_id)
+
+	def add_user_message(self, session_id: str, message: str) -> None:
+		self._append_message(session_id, "user", message)
 
 	def add_assistant_message(self, session_id: str, message: str) -> None:
-		history = self._load_session(session_id)
-		history.append({"role": "assistant", "content": message})
-		self._save_session(session_id)
+		self._append_message(session_id, "assistant", message)
 
-	def get_recent_history(self, session_id: str) -> list[dict[str, str]]:
-		return list(self._load_session(session_id))
+	def get_recent_history(self, session_id: str, limit: int | None = None) -> list[dict[str, str]]:
+		history = list(self._load_session(session_id))
+		if limit is None or limit >= len(history):
+			return history
+		return history[-limit:]
+
+	def get_context_window(
+		self,
+		session_id: str,
+		question: str,
+		max_messages: int = 6,
+	) -> list[dict[str, str]]:
+		history = list(self._load_session(session_id))
+		normalized_question = self._normalize_message(question)
+		if history and history[-1].get("role") == "user" and history[-1].get("content") == normalized_question:
+			history = history[:-1]
+
+		filtered = [
+			turn
+			for turn in history
+			if turn.get("role") in {"user", "assistant"} and turn.get("content")
+		]
+		return filtered[-max_messages:]
 
 	def clear(self, session_id: str) -> None:
 		self._sessions.pop(session_id, None)

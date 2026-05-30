@@ -1,109 +1,46 @@
-# Fast In-Memory RAG (FAISS + Gemini)
+# Woodmaster CNC Assistant
 
-This project provides a clean, modular Retrieval-Augmented Generation (RAG) system designed for:
+This project runs a Woodmaster CNC sales and support assistant powered by:
 
-- Fast in-memory retrieval with FAISS
-- Multilingual embeddings via Gemini
-- Response generation via Gemini
-- Multi-turn context and memory management
-- Easy integration with WhatsApp and Messenger handlers
-- Optional image references in responses
+- `data/knowledge.md` as the FAQ knowledge source
+- Sarvam for grounded response generation
+- session-based memory for short follow-up context
+- WhatsApp and Messenger webhook integrations
 
-## Architecture
+## Key Files
 
-- `src/config.py`: environment and runtime settings
-- `src/rag/embeeding.py`: Gemini embedding client
-- `src/rag/faiss_store.py`: FAISS vector index build/load/search
-- `src/rag/generation.py`: Gemini chat completion client
-- `src/memory/memory_manager.py`: per-session in-memory conversation history
-- `src/memory/context_manager.py`: retrieved-context assembly and truncation
-- `src/pipeline/rag_pipepline.py`: end-to-end RAG pipeline
-- `main.py`: local CLI for testing
-- `app.py`: simple `ask()` function for integrations
+- `src/config.py`: runtime settings
+- `src/rag/prompt.py`: chatbot prompts and guardrails
+- `src/rag/generation.py`: Sarvam client wrapper
+- `src/pipeline/rag_pipeline.py`: markdown FAQ retrieval and response pipeline
+- `src/memory/memory_manager.py`: session history storage
+- `src/messenger/conversation_flow.py`: greeting and language flow
+- `src/whatsapp/client.py`: WhatsApp send helpers
+- `qa.py`: local test script
 
-## Environment Variables
-
-Add these values to `.env`:
+## Required Environment Variables
 
 ```env
-GEMINI_API_KEY=your_gemini_key
+SARVAM_API_KEY=your_sarvam_key
+SARVAM_GENERATION_MODEL=sarvam-m
+SARVAM_TEMPERATURE=0.3
+SARVAM_TOP_P=0.85
+SARVAM_MAX_OUTPUT_TOKENS=220
 
-# WhatsApp Cloud API (Meta)
-WHATSAPP_VERIFY_TOKEN=your_random_verify_token
+WHATSAPP_VERIFY_TOKEN=your_verify_token
 WHATSAPP_PHONE_NUMBER_ID=your_phone_number_id
-WHATSAPP_ACCESS_TOKEN=your_permanent_or_temp_access_token
-WHATSAPP_GRAPH_VERSION=v23.0
-# Optional but recommended for webhook signature validation
-WHATSAPP_APP_SECRET=your_meta_app_secret
+WHATSAPP_ACCESS_TOKEN=your_whatsapp_access_token
+WHATSAPP_APP_SECRET=your_whatsapp_app_secret
 
-# Optional overrides
-GEMINI_EMBEDDING_MODEL=models/gemini-embedding-001
-GEMINI_GENERATION_MODEL=gemini-2.5-flash
-GEMINI_TIMEOUT_SECONDS=25
-GEMINI_MAX_RETRIES=1
-GEMINI_BACKOFF_SECONDS=0.6
-GEMINI_TEMPERATURE=0.35
-GEMINI_TOP_P=0.9
-GEMINI_MAX_OUTPUT_TOKENS=280
-GEMINI_THINKING_BUDGET=0
+MESSENGER_ACCESS_TOKEN=your_messenger_access_token
+MESSENGER_VERIFY_TOKEN=your_messenger_verify_token
 
-RAG_CHUNK_SIZE=700
-RAG_CHUNK_OVERLAP=120
+PUBLIC_BASE_URL=https://your-public-domain
+SESSION_ENCRYPTION_KEY=optional_custom_key
 RAG_TOP_K=5
 RAG_MEMORY_TURNS=8
 RAG_MAX_CONTEXT_CHARS=5000
 ```
-
-## Real WhatsApp Integration (Meta Cloud API)
-
-This project now supports real WhatsApp webhooks on:
-
-- `GET /whatsapp/webhook` for Meta verification handshake
-- `POST /whatsapp/webhook` for incoming WhatsApp messages
-
-### Credentials You Need
-
-1. `WHATSAPP_VERIFY_TOKEN`
-2. `WHATSAPP_PHONE_NUMBER_ID`
-3. `WHATSAPP_ACCESS_TOKEN`
-4. `WHATSAPP_APP_SECRET` (recommended)
-5. `GEMINI_API_KEY` (already required by this RAG app)
-
-### How to Get Them (Step by Step)
-
-1. Create a Meta developer app
-	- Go to Meta for Developers and create an app (Business type is typical).
-2. Add WhatsApp product to the app
-	- In your app dashboard, add the WhatsApp product.
-3. Get test sender setup
-	- In WhatsApp API setup, Meta gives a test phone number and temporary token.
-4. Get `WHATSAPP_PHONE_NUMBER_ID`
-	- In WhatsApp API setup, copy the Phone Number ID.
-5. Generate `WHATSAPP_VERIFY_TOKEN`
-	- Create any random long string yourself (for example from a password generator).
-	- Put it in `.env` as `WHATSAPP_VERIFY_TOKEN`.
-6. Get `WHATSAPP_ACCESS_TOKEN`
-	- For testing: use the temporary token shown in Meta dashboard.
-	- For production: create a system user token in Meta Business Manager with WhatsApp permissions.
-7. Get `WHATSAPP_APP_SECRET` (recommended)
-	- In your Meta app settings, copy App Secret and set `WHATSAPP_APP_SECRET`.
-8. Configure webhook URL in Meta
-	- Public HTTPS URL must point to: `https://<your-domain>/whatsapp/webhook`
-	- Verify token must match `WHATSAPP_VERIFY_TOKEN`.
-9. Subscribe webhook fields
-	- Subscribe at least to `messages` for your WhatsApp business account.
-10. Add recipient numbers
-	- In test mode, add recipient phone numbers in Meta's allowed recipients list.
-11. Send a test message
-	- Message your WhatsApp business number from an allowed number.
-	- The app reads incoming message, queries RAG, and sends back the answer.
-
-### Production Notes
-
-- Webhook endpoint must be publicly reachable over HTTPS.
-- Move from temporary to permanent access token before go-live.
-- Keep `WHATSAPP_APP_SECRET` enabled so incoming webhook signatures are validated.
-- Configure token rotation and monitoring for reliability.
 
 ## Install
 
@@ -111,32 +48,23 @@ This project now supports real WhatsApp webhooks on:
 pip install -r requirements.txt
 ```
 
-## Run CLI
+## Local QA Test
+
+Edit the question in `qa.py`, then run:
 
 ```bash
-python main.py
+python qa.py
 ```
 
-## Integration Usage
+## Webhooks
 
-```python
-from app import ask
-
-response = ask("What machine models are available?", session_id="whatsapp:+91xxxx")
-print(response["answer"])
-print(response["images"])
-```
-
-## Data and Artifacts
-
-- Place text knowledge in `data/*.txt`
-- Place product images in `data/images/`
-- FAISS index is persisted in `artifacts/faiss.index`
-- Chunk metadata is persisted in `artifacts/faiss_meta.json`
+- `GET /whatsapp/webhook`: Meta verification
+- `POST /whatsapp/webhook`: incoming WhatsApp messages
+- `GET /messenger/webhook`: Meta verification
+- `POST /messenger/webhook`: incoming Messenger messages
 
 ## Notes
 
-- The pipeline uses in-memory state for chat memory and loaded index for speed.
-- For fresh indexing after data updates, call `initialize(force_rebuild=True)`.
-- Image references are auto-selected from retrieved product chunks (for example `product1.png`).
-
+- The bot only answers Woodmaster CNC related queries.
+- FAQ facts come from `data/knowledge.md`.
+- If a detail is missing from the FAQ, the bot should say that clearly instead of inventing an answer.
