@@ -86,7 +86,11 @@ class ConversationFlowManager:
         normalized = message.strip().lower()
         if normalized in {"english", "eng", "en"}:
             return "English"
+<<<<<<< HEAD
         if normalized in {"hindi", "hin", "hi"}:
+=======
+        if normalized in {"hindi", "hin", "हिन्दी", "हिंदी"}:
+>>>>>>> 0459f549af78c8063fbe9d00dd04b416dad88c04
             return "Hindi"
         if normalized in {"bengali", "bangla", "bn"}:
             return "Bengali"

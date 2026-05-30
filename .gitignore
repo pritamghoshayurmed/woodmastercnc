@@ -1,2 +1,6 @@
 .env
 /wm
+/woodmaster
+__pycache__/
+*.py[cod]
+../../../.venv

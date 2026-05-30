@@ -9,19 +9,46 @@ from difflib import SequenceMatcher
 from src.config import Settings
 from src.memory.context_manager import ContextManager
 from src.memory.memory_manager import ConversationMemoryManager
+<<<<<<< HEAD
 from src.rag.generation import GeneratorRateLimitError, SarvamGenerator
 from src.rag.types import DocumentChunk, RAGResponse, RetrievedChunk
+=======
+from src.rag.embedding import GeminiEmbedder
+from src.rag.faiss_store import FaissVectorStore
+from src.rag.generation import SarvamGenerator, GenerationRateLimitError
+from src.rag.types import DocumentChunk, RAGResponse
+>>>>>>> 0459f549af78c8063fbe9d00dd04b416dad88c04
 
 
 class RAGPipeline:
 	def __init__(self, settings: Settings) -> None:
 		self.settings = settings
+<<<<<<< HEAD
 		self.generator = SarvamGenerator(
 			api_key=settings.sarvam_api_key,
 			model=settings.sarvam_generation_model,
 			temperature=settings.sarvam_temperature,
 			top_p=settings.sarvam_top_p,
 			max_tokens=settings.sarvam_max_output_tokens,
+=======
+		self.embedder = GeminiEmbedder(
+			api_key=settings.gemini_api_key,
+			model=settings.gemini_embedding_model,
+		)
+		self.generator = SarvamGenerator(
+			api_key=settings.sarvam_api_key,
+			model="sarvam-30b",
+			timeout=settings.gemini_timeout_seconds,
+			max_retries=settings.gemini_max_retries,
+			backoff_seconds=settings.gemini_backoff_seconds,
+			temperature=0.2,
+			top_p=1.0,
+			max_tokens=1500,
+		)
+		self.vector_store = FaissVectorStore(
+			index_path=settings.faiss_index_path,
+			metadata_path=settings.faiss_metadata_path,
+>>>>>>> 0459f549af78c8063fbe9d00dd04b416dad88c04
 		)
 		self.context_manager = ContextManager(max_context_chars=settings.max_context_chars)
 		self.memory_manager = ConversationMemoryManager(
@@ -54,6 +81,7 @@ class RAGPipeline:
 		retrieved = self._retrieve_relevant_chunks(standalone_question)
 		context, sources = self.context_manager.build_context(retrieved, history=recent_history)
 
+<<<<<<< HEAD
 		if self._should_return_unavailable_answer(retrieved, context):
 			answer = self._build_unavailable_answer(question=question)
 		else:
@@ -68,6 +96,22 @@ class RAGPipeline:
 				answer = self._build_fallback_answer(question=question, retrieved=retrieved, rate_limited=True)
 			except Exception as exc:
 				answer = self._build_fallback_answer(question=question, retrieved=retrieved, rate_limited=False, error_message=str(exc))
+=======
+		retrieved = self.vector_store.search(query_embedding, top_k=self.settings.top_k)
+		context, sources = self.context_manager.build_context(retrieved)
+
+		try:
+			answer = self.generator.generate(
+				question=question,
+				context=context,
+				history=recent_history,
+				preferred_language=preferred_language,
+			)
+		except GenerationRateLimitError:
+			answer = self._build_fallback_answer(question=question, retrieved=retrieved, rate_limited=True)
+		except Exception as exc:
+			answer = self._build_fallback_answer(question=question, retrieved=retrieved, rate_limited=False, error_message=str(exc))
+>>>>>>> 0459f549af78c8063fbe9d00dd04b416dad88c04
 		self.memory_manager.add_assistant_message(session_id, answer)
 
 		images = self._resolve_images(question, retrieved)
@@ -129,6 +173,7 @@ class RAGPipeline:
 		}
 
 		full_answer = ""
+<<<<<<< HEAD
 		if self._should_return_unavailable_answer(retrieved, context):
 			full_answer = self._build_unavailable_answer(question=question)
 			yield {"type": "chunk", "content": full_answer}
@@ -150,6 +195,25 @@ class RAGPipeline:
 				fallback = self._build_fallback_answer(question=question, retrieved=retrieved, rate_limited=False, error_message=str(exc))
 				full_answer = fallback
 				yield {"type": "chunk", "content": fallback}
+=======
+		try:
+			for text_chunk in self.generator.generate_stream(
+				question=question,
+				context=context,
+				history=recent_history,
+				preferred_language=preferred_language,
+			):
+				full_answer += text_chunk
+				yield {"type": "chunk", "content": text_chunk}
+		except GenerationRateLimitError:
+			fallback = self._build_fallback_answer(question=question, retrieved=retrieved, rate_limited=True)
+			full_answer = fallback
+			yield {"type": "chunk", "content": fallback}
+		except Exception as exc:
+			fallback = self._build_fallback_answer(question=question, retrieved=retrieved, rate_limited=False, error_message=str(exc))
+			full_answer = fallback
+			yield {"type": "chunk", "content": fallback}
+>>>>>>> 0459f549af78c8063fbe9d00dd04b416dad88c04
 
 		self.memory_manager.add_assistant_message(session_id, full_answer)
 		yield {"type": "done"}
@@ -347,6 +411,7 @@ class RAGPipeline:
 		rate_limited: bool,
 		error_message: str | None = None,
 	) -> str:
+<<<<<<< HEAD
 		if not retrieved:
 			if rate_limited:
 				return (
@@ -382,3 +447,18 @@ class RAGPipeline:
 			"If you want, I can help you add this answer to `data/knowledge.md` once you confirm the exact details."
 		)
 
+=======
+		contact_info = "If you have specific or urgent queries, please contact us at email: sales@woodmaster.com or phone: +91-XXXXX-XXXXX."
+		
+		if rate_limited:
+			return (
+				"The live model is currently experiencing heavy traffic. Please try again in a few seconds. "
+				f"{contact_info}"
+			)
+			
+		return (
+			"I am taking the cold start, please wait for 5-10 seconds to start getting responses. "
+			f"{contact_info}"
+		)
+
+>>>>>>> 0459f549af78c8063fbe9d00dd04b416dad88c04
