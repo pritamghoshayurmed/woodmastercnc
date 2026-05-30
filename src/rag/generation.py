@@ -37,27 +37,115 @@ class SarvamGenerator:
         self.max_tokens = max_tokens
         self.fallback_models = ["sarvam-m"]
 
-    def _compose_system_prompt(self, preferred_language: Optional[str] = None) -> str:
-        return build_system_prompt(preferred_language=preferred_language)
+    def _compose_system_prompt(
+        self,
+        preferred_language: Optional[str] = None,
+        suppress_thinking: bool = False,
+    ) -> str:
+        return build_system_prompt(
+            preferred_language=preferred_language,
+            suppress_thinking=suppress_thinking,
+        )
+
+    @staticmethod
+    def _contains_thinking_tag(text: str | None) -> bool:
+        if not text:
+            return False
+
+        return bool(re.search(r"</?\s*think\b[^>]*>", text, flags=re.IGNORECASE))
+
+    @staticmethod
+    def _strip_thinking_tags(text: str | None) -> str:
+        if not text:
+            return ""
+
+        cleaned = re.sub(
+            r"<think\b[^>]*>.*?</think\s*>",
+            "",
+            text,
+            flags=re.DOTALL | re.IGNORECASE,
+        )
+        cleaned = re.sub(r"</?\s*think\b[^>]*>", "", cleaned, flags=re.IGNORECASE)
+        return cleaned
 
     @staticmethod
     def _clean_response_text(text: str | None) -> str:
         if not text:
             return ""
 
-        cleaned = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL | re.IGNORECASE)
+        cleaned = SarvamGenerator._strip_thinking_tags(text)
         cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
         return cleaned.strip()
 
+    def _build_completion_messages(
+        self,
+        question: str,
+        context: str,
+        history: List[Dict[str, str]],
+        preferred_language: Optional[str] = None,
+        suppress_thinking: bool = False,
+    ) -> List[Any]:
+        messages: List[Any] = [
+            {
+                "role": "system",
+                "content": self._compose_system_prompt(
+                    preferred_language=preferred_language,
+                    suppress_thinking=suppress_thinking,
+                ),
+            }
+        ]
+
+        for turn in history:
+            role = "assistant" if turn.get("role") == "assistant" else "user"
+            messages.append({"role": role, "content": turn.get("content", "")})
+
+        messages.append({"role": "user", "content": build_answer_prompt(question=question, context=context)})
+        return messages
+
+    def _repair_thinking_answer(
+        self,
+        draft: str,
+        preferred_language: Optional[str],
+        model_name: str,
+    ) -> str:
+        repair_prompt = (
+            "Rewrite the following draft as the final customer-facing answer only. "
+            "Remove any <think> tags, internal reasoning, or analysis. "
+            "Keep the answer short and finish with one short follow-up question.\n\n"
+            f"Draft:\n{draft}"
+        )
+        response = self.client.chat.completions(
+            model=model_name,
+            messages=[
+                {
+                    "role": "system",
+                    "content": self._compose_system_prompt(
+                        preferred_language=preferred_language,
+                        suppress_thinking=True,
+                    ),
+                },
+                {"role": "user", "content": repair_prompt},
+            ],
+            temperature=0.2,
+            top_p=self.top_p,
+            max_tokens=min(self.max_tokens + 120, 360),
+        )
+        repaired = self._extract_message_text(response)
+        return repaired or draft
+
     @classmethod
-    def _extract_message_text(cls, response: Any) -> str:
+    def _extract_raw_message_text(cls, response: Any) -> str:
         choices = getattr(response, "choices", None) or []
         if not choices:
             return ""
 
         message = getattr(choices[0], "message", None)
         content = getattr(message, "content", None) if message else None
-        return cls._clean_response_text(content)
+        return str(content or "")
+
+    @classmethod
+    def _extract_message_text(cls, response: Any) -> str:
+        return cls._clean_response_text(cls._extract_raw_message_text(response))
 
     @staticmethod
     def _finish_reason(response: Any) -> str:
@@ -93,7 +181,13 @@ class SarvamGenerator:
         response = self.client.chat.completions(
             model=model_name,
             messages=[
-                {"role": "system", "content": build_system_prompt(preferred_language=preferred_language)},
+                {
+                    "role": "system",
+                    "content": self._compose_system_prompt(
+                        preferred_language=preferred_language,
+                        suppress_thinking=True,
+                    ),
+                },
                 {"role": "user", "content": repair_prompt},
             ],
             temperature=0.2,
@@ -153,37 +247,52 @@ class SarvamGenerator:
         history: List[Dict[str, str]],
         preferred_language: Optional[str] = None,
     ) -> str:
-        system_prompt = self._compose_system_prompt(preferred_language=preferred_language)
-
-        messages: List[Any] = [{"role": "system", "content": system_prompt}]
-        for turn in history:
-            role = "assistant" if turn.get("role") == "assistant" else "user"
-            messages.append({"role": role, "content": turn.get("content", "")})
-
-        prompt = build_answer_prompt(question=question, context=context)
-        messages.append({"role": "user", "content": prompt})
-
-        models_to_try = [self.model] + [model for model in self.fallback_models if model != self.model]
+        fallback_models = getattr(self, "fallback_models", ["sarvam-m"])
+        models_to_try = [self.model] + [model for model in fallback_models if model != self.model]
         last_error: Exception | None = None
 
         for model_name in models_to_try:
             try:
                 max_tokens = self.max_tokens
+                suppress_thinking = False
                 last_content = ""
                 for attempt in range(2):
                     response = self.client.chat.completions(
                         model=model_name,
-                        messages=messages,
+                        messages=self._build_completion_messages(
+                            question=question,
+                            context=context,
+                            history=history,
+                            preferred_language=preferred_language,
+                            suppress_thinking=suppress_thinking,
+                        ),
                         temperature=self.temperature,
                         top_p=self.top_p,
                         max_tokens=max_tokens,
                     )
-                    content = self._extract_message_text(response)
+                    raw_content = self._extract_raw_message_text(response)
+                    content = self._clean_response_text(raw_content)
                     last_content = content
                     finish_reason = self._finish_reason(response)
+                    has_thinking_tag = self._contains_thinking_tag(raw_content)
 
-                    if content and finish_reason != "length" and not self._looks_incomplete(content):
+                    if content and finish_reason != "length" and not has_thinking_tag and not self._looks_incomplete(content):
                         return content
+
+                    if has_thinking_tag and not suppress_thinking:
+                        suppress_thinking = True
+                        if finish_reason == "length":
+                            max_tokens = min(max_tokens * 2, 480)
+                        continue
+
+                    if has_thinking_tag:
+                        repaired = self._repair_thinking_answer(raw_content or content, preferred_language, model_name)
+                        repaired = self._clean_response_text(repaired)
+                        if repaired:
+                            return repaired
+                        if content:
+                            return content
+                        continue
 
                     if attempt == 0:
                         max_tokens = min(max_tokens * 2, 480)
