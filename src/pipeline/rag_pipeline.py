@@ -51,7 +51,9 @@ class RAGPipeline:
 			max_messages=min(6, max(2, self.settings.memory_turns)),
 		)
 		standalone_question = self.generator.reformulate_query(question, history=recent_history)
-		retrieved = self._retrieve_relevant_chunks(standalone_question)
+		retrieval_query = self._build_retrieval_query(question, standalone_question, recent_history)
+		generation_question = self._build_generation_question(question, standalone_question, recent_history)
+		retrieved = self._retrieve_relevant_chunks(retrieval_query)
 		context, sources = self.context_manager.build_context(retrieved, history=recent_history)
 
 		if self._should_return_unavailable_answer(retrieved, context):
@@ -59,7 +61,7 @@ class RAGPipeline:
 		else:
 			try:
 				answer = self.generator.generate(
-					question=question,
+					question=generation_question,
 					context=context,
 					history=recent_history,
 					preferred_language=preferred_language,
@@ -106,7 +108,9 @@ class RAGPipeline:
 			max_messages=min(6, max(2, self.settings.memory_turns)),
 		)
 		standalone_question = self.generator.reformulate_query(question, history=recent_history)
-		retrieved = self._retrieve_relevant_chunks(standalone_question)
+		retrieval_query = self._build_retrieval_query(question, standalone_question, recent_history)
+		generation_question = self._build_generation_question(question, standalone_question, recent_history)
+		retrieved = self._retrieve_relevant_chunks(retrieval_query)
 		context, sources = self.context_manager.build_context(retrieved, history=recent_history)
 
 		images = self._resolve_images(question, retrieved)
@@ -135,7 +139,7 @@ class RAGPipeline:
 		else:
 			try:
 				for text_chunk in self.generator.generate_stream(
-					question=question,
+					question=generation_question,
 					context=context,
 					history=recent_history,
 					preferred_language=preferred_language,
@@ -251,6 +255,116 @@ class RAGPipeline:
 		fallback = [chunk for chunk in self.knowledge_chunks if not chunk.metadata.get("is_placeholder")]
 		return [RetrievedChunk(chunk=chunk, score=0.0) for chunk in fallback[: self.settings.top_k]]
 
+	def _build_retrieval_query(
+		self,
+		question: str,
+		standalone_question: str,
+		history: list[dict[str, str]],
+	) -> str:
+		base_question = standalone_question.strip() or question.strip()
+		if not self._is_context_dependent(question):
+			return base_question
+
+		last_assistant = ""
+		last_user = ""
+		for turn in reversed(history):
+			role = turn.get("role")
+			content = str(turn.get("content", "")).strip()
+			if not content:
+				continue
+			if not last_assistant and role == "assistant":
+				last_assistant = self._extract_last_question(content) or content
+			elif not last_user and role == "user":
+				last_user = content
+			if last_assistant and last_user:
+				break
+
+		parts = [self._expand_query_aliases(base_question)]
+		if last_assistant:
+			parts.append(f"Previous assistant question: {self._expand_query_aliases(last_assistant)}")
+		if last_user:
+			parts.append(f"Previous customer context: {self._expand_query_aliases(last_user)}")
+		return "\n".join(parts)
+
+	def _build_generation_question(
+		self,
+		question: str,
+		standalone_question: str,
+		history: list[dict[str, str]],
+	) -> str:
+		base_question = standalone_question.strip() or question.strip()
+		if not self._is_context_dependent(question):
+			return base_question
+
+		last_assistant = ""
+		for turn in reversed(history):
+			if turn.get("role") == "assistant":
+				content = str(turn.get("content", "")).strip()
+				if content:
+					last_assistant = self._extract_last_question(content) or content
+					break
+
+		if not last_assistant:
+			return base_question
+
+		if re.fullmatch(r"\d+\s*(ta|pcs|pieces|per day|daily)?", question.strip().lower()):
+			return (
+				f"Customer shared expected production quantity: {question.strip()}.\n"
+				f"This is a reply to the previous assistant question: {last_assistant}"
+			)
+
+		return (
+			f"Customer follow-up: {question.strip()}\n"
+			f"This is a reply to the previous assistant question: {last_assistant}"
+		)
+
+	@staticmethod
+	def _is_context_dependent(question: str) -> bool:
+		normalized = re.sub(r"\s+", " ", question.strip().lower())
+		if not normalized:
+			return False
+
+		tokens = re.findall(r"[a-z0-9]+", normalized)
+		if len(tokens) <= 4:
+			return True
+
+		dependent_patterns = [
+			r"^\d+\s*(ta|pcs|pieces|per day|daily)?$",
+			r"^(ha|hmm|ok|okay|accha|acha|achha|yes|no|ji|haan|na)$",
+			r"^(mostly|mainly|muloto|primarily)\b",
+			r"^(amra|amar|eta|oi|seita|seta|etar)\b",
+		]
+		return any(re.search(pattern, normalized) for pattern in dependent_patterns)
+
+	@staticmethod
+	def _extract_last_question(text: str) -> str:
+		sentences = re.split(r"(?<=[?.!])\s+|\n+", text.strip())
+		questions = [sentence.strip() for sentence in sentences if "?" in sentence]
+		return questions[-1] if questions else ""
+
+	@staticmethod
+	def _expand_query_aliases(text: str) -> str:
+		normalized = text.strip()
+		lowered = normalized.lower()
+		extra_terms: list[str] = []
+
+		alias_groups = [
+			({"kon machine", "which machine", "kon model", "best model", "recommend", "newa jai", "nibo", "bhabchilam"}, "recommended model machine choice woodworking"),
+			({"dam", "price", "koto", "cost", "quotation"}, "price quotation machine cost"),
+			({"emi", "finance", "loan", "bank"}, "emi finance bank funding"),
+			({"training", "shikhiye", "install", "support"}, "training installation support"),
+			({"chair", "furniture", "wood", "kath", "carving", "design"}, "woodworking chair furniture carving"),
+			({"warranty", "guarantee"}, "warranty service support"),
+		]
+
+		for aliases, expansion in alias_groups:
+			if any(alias in lowered for alias in aliases):
+				extra_terms.append(expansion)
+
+		if not extra_terms:
+			return normalized
+		return f"{normalized}\nRelated intent: {'; '.join(extra_terms)}"
+
 	def _score_chunk(self, question: str, chunk: DocumentChunk) -> float:
 		query_text = self._normalize_text(question)
 		chunk_text = self._normalize_text(chunk.text)
@@ -266,7 +380,52 @@ class RAGPipeline:
 		phrase_ratio = SequenceMatcher(None, query_text, self._normalize_text(chunk.metadata.get("question", ""))).ratio()
 		number_bonus = 0.2 if set(re.findall(r"\d+", query_text)) & set(re.findall(r"\d+", chunk_text)) else 0.0
 		placeholder_penalty = 0.35 if chunk.metadata.get("is_placeholder") else 0.0
-		return max(0.0, overlap * 0.7 + phrase_ratio * 0.3 + number_bonus - placeholder_penalty)
+		category_bonus = self._category_boost(query_text, chunk)
+		return max(0.0, overlap * 0.7 + phrase_ratio * 0.3 + number_bonus + category_bonus - placeholder_penalty)
+
+	@staticmethod
+	def _category_boost(query_text: str, chunk: DocumentChunk) -> float:
+		chunk_question = str(chunk.metadata.get("question", "")).lower()
+		boost = 0.0
+
+		intent_groups = [
+			(
+				{"kon machine", "which machine", "kon model", "best model", "recommend", "newa jai", "nibo", "bhabchilam"},
+				{"recommend", "model"},
+				0.28,
+			),
+			(
+				{"price", "dam", "koto", "quotation", "cost"},
+				{"price"},
+				0.28,
+			),
+			(
+				{"emi", "finance", "loan", "bank"},
+				{"emi", "finance"},
+				0.28,
+			),
+			(
+				{"training", "install", "support"},
+				{"training"},
+				0.22,
+			),
+			(
+				{"warranty", "guarantee"},
+				{"warranty"},
+				0.22,
+			),
+			(
+				{"material", "wood", "kath", "chair", "furniture", "acrylic", "plywood"},
+				{"materials", "processed"},
+				0.18,
+			),
+		]
+
+		for query_aliases, chunk_markers, amount in intent_groups:
+			if any(alias in query_text for alias in query_aliases) and all(marker in chunk_question for marker in chunk_markers):
+				boost += amount
+
+		return boost
 
 	@staticmethod
 	def _normalize_text(text: str) -> str:

@@ -77,6 +77,32 @@ class SarvamGenerator:
 
         return stripped[-1] not in {".", "!", "?", '"', "'", ")", "]"}
 
+    def _repair_incomplete_answer(
+        self,
+        draft: str,
+        preferred_language: Optional[str],
+        model_name: str,
+    ) -> str:
+        repair_prompt = (
+            "Rewrite the following incomplete draft into a complete, short customer-facing answer. "
+            "Keep only supported information already present in the draft. "
+            "Do not add new facts. "
+            "Finish with one short follow-up question.\n\n"
+            f"Draft:\n{draft}"
+        )
+        response = self.client.chat.completions(
+            model=model_name,
+            messages=[
+                {"role": "system", "content": build_system_prompt(preferred_language=preferred_language)},
+                {"role": "user", "content": repair_prompt},
+            ],
+            temperature=0.2,
+            top_p=self.top_p,
+            max_tokens=min(self.max_tokens + 120, 360),
+        )
+        repaired = self._extract_message_text(response)
+        return repaired or draft
+
     def reformulate_query(self, question: str, history: List[Dict[str, str]]) -> str:
         if not history:
             return question
@@ -143,6 +169,7 @@ class SarvamGenerator:
         for model_name in models_to_try:
             try:
                 max_tokens = self.max_tokens
+                last_content = ""
                 for attempt in range(2):
                     response = self.client.chat.completions(
                         model=model_name,
@@ -152,12 +179,10 @@ class SarvamGenerator:
                         max_tokens=max_tokens,
                     )
                     content = self._extract_message_text(response)
+                    last_content = content
                     finish_reason = self._finish_reason(response)
 
                     if content and finish_reason != "length" and not self._looks_incomplete(content):
-                        return content
-
-                    if content and finish_reason != "length" and attempt == 1:
                         return content
 
                     if attempt == 0:
@@ -165,7 +190,7 @@ class SarvamGenerator:
                         continue
 
                     if content:
-                        return content
+                        return self._repair_incomplete_answer(content, preferred_language, model_name)
 
                 raise ValueError(f"Sarvam returned no final answer text for model {model_name}.")
             except Exception as exc:
