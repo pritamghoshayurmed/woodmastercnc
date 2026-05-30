@@ -8,7 +8,7 @@ from src.config import load_settings
 from src.pipeline.rag_pipeline import RAGPipeline
 
 
-QUESTION = "What is the warranty period?"
+QUESTION = "what are the types of machine avilable to you ?"
 SESSION_ID = "qa-test-sarvam"
 PREFERRED_LANGUAGE = None
 SAMPLE_QUERIES = [

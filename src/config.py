@@ -7,25 +7,11 @@ from pathlib import Path
 
 @dataclass(frozen=True)
 class Settings:
-<<<<<<< HEAD
     sarvam_api_key: str
     sarvam_generation_model: str
     sarvam_temperature: float
     sarvam_top_p: float
     sarvam_max_output_tokens: int
-=======
-    gemini_api_key: str
-    sarvam_api_key: str
-    gemini_embedding_model: str
-    gemini_generation_model: str
-    gemini_timeout_seconds: int
-    gemini_max_retries: int
-    gemini_backoff_seconds: float
-    gemini_temperature: float
-    gemini_top_p: float
-    gemini_max_output_tokens: int
-    gemini_thinking_budget: int
->>>>>>> 0459f549af78c8063fbe9d00dd04b416dad88c04
     data_dir: Path
     image_dir: Path
     knowledge_base_path: Path
@@ -50,25 +36,11 @@ def load_settings() -> Settings:
         raise ValueError("SARVAM_API_KEY is missing in environment.")
 
     return Settings(
-<<<<<<< HEAD
         sarvam_api_key=sarvam_api_key,
         sarvam_generation_model=os.getenv("SARVAM_GENERATION_MODEL", "sarvam-m").strip() or "sarvam-m",
         sarvam_temperature=float(os.getenv("SARVAM_TEMPERATURE", "0.3")),
         sarvam_top_p=float(os.getenv("SARVAM_TOP_P", "0.85")),
-        sarvam_max_output_tokens=int(os.getenv("SARVAM_MAX_OUTPUT_TOKENS", "220")),
-=======
-        gemini_api_key=gemini_api_key,
-        sarvam_api_key=sarvam_api_key,
-        gemini_embedding_model=os.getenv("GEMINI_EMBEDDING_MODEL", "models/gemini-embedding-001"),
-        gemini_generation_model=os.getenv("GEMINI_GENERATION_MODEL", "gemini-2.5-flash"),
-        gemini_timeout_seconds=int(os.getenv("GEMINI_TIMEOUT_SECONDS", "25")),
-        gemini_max_retries=int(os.getenv("GEMINI_MAX_RETRIES", "1")),
-        gemini_backoff_seconds=float(os.getenv("GEMINI_BACKOFF_SECONDS", "0.6")),
-        gemini_temperature=float(os.getenv("GEMINI_TEMPERATURE", "0.35")),
-        gemini_top_p=float(os.getenv("GEMINI_TOP_P", "0.9")),
-        gemini_max_output_tokens=int(os.getenv("GEMINI_MAX_OUTPUT_TOKENS", "600")),
-        gemini_thinking_budget=int(os.getenv("GEMINI_THINKING_BUDGET", "0")),
->>>>>>> 0459f549af78c8063fbe9d00dd04b416dad88c04
+        sarvam_max_output_tokens=int(os.getenv("SARVAM_MAX_OUTPUT_TOKENS", "300")),
         data_dir=base_dir / "data",
         image_dir=base_dir / "data" / "images",
         knowledge_base_path=base_dir / "data" / "knowledge.md",
