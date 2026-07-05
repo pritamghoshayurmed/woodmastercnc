@@ -36,6 +36,8 @@ class Settings:
 def load_settings() -> Settings:
     base_dir = Path(__file__).resolve().parent.parent
     artifact_dir = base_dir / "artifacts"
+    database_pooler_url = os.getenv("DATABASE_POOLER_URL", "").strip()
+    database_url = database_pooler_url or os.getenv("DATABASE_URL", "").strip()
 
     nvidia_nim_api_key = os.getenv("NVIDIA_NIM_API_KEY", "").strip()
     if not nvidia_nim_api_key:
@@ -62,7 +64,7 @@ def load_settings() -> Settings:
         top_k=int(os.getenv("RAG_TOP_K", "5")),
         memory_turns=int(os.getenv("RAG_MEMORY_TURNS", "8")),
         max_context_chars=int(os.getenv("RAG_MAX_CONTEXT_CHARS", "5000")),
-        database_url=os.getenv("DATABASE_URL", "").strip(),
+        database_url=database_url,
         db_enabled=os.getenv("DB_ENABLED", "false").strip().lower() in {"1", "true", "yes", "on"},
         lead_score_threshold=int(os.getenv("LEAD_SCORE_THRESHOLD", "50")),
         lead_score_every_n_messages=int(os.getenv("LEAD_SCORE_EVERY_N_MESSAGES", "3")),
