@@ -25,6 +25,12 @@ class Settings:
     top_k: int
     memory_turns: int
     max_context_chars: int
+    database_url: str
+    db_enabled: bool
+    lead_score_threshold: int
+    lead_score_every_n_messages: int
+    dashboard_basic_username: str
+    dashboard_basic_password: str
 
 
 def load_settings() -> Settings:
@@ -56,4 +62,10 @@ def load_settings() -> Settings:
         top_k=int(os.getenv("RAG_TOP_K", "5")),
         memory_turns=int(os.getenv("RAG_MEMORY_TURNS", "8")),
         max_context_chars=int(os.getenv("RAG_MAX_CONTEXT_CHARS", "5000")),
+        database_url=os.getenv("DATABASE_URL", "").strip(),
+        db_enabled=os.getenv("DB_ENABLED", "false").strip().lower() in {"1", "true", "yes", "on"},
+        lead_score_threshold=int(os.getenv("LEAD_SCORE_THRESHOLD", "50")),
+        lead_score_every_n_messages=int(os.getenv("LEAD_SCORE_EVERY_N_MESSAGES", "3")),
+        dashboard_basic_username=os.getenv("DASHBOARD_BASIC_USERNAME", "").strip(),
+        dashboard_basic_password=os.getenv("DASHBOARD_BASIC_PASSWORD", "").strip(),
     )

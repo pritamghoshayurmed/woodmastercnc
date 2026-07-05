@@ -18,8 +18,12 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, StringConstraints
 from typing import Annotated
 
+from src.api.router import api_router
 from src.config import load_settings
+from src.db.client import DatabaseDisabledError, close_db_client, is_db_enabled, run_sql_file
+from src.db import messages as db_messages
 from src.messenger.conversation_flow import ConversationFlowManager
+from src.lead.scorer import score_conversation
 from src.pipeline.rag_pipeline import RAGPipeline
 from src.whatsapp.dedupe import RecentMessageCache
 import src.whatsapp.client as wa
@@ -83,6 +87,55 @@ def _try_initialize_rag() -> bool:
         startup_error = f"{exc.__class__.__name__}: {exc}"
         logger.exception("Lazy recovery initialization failed")
         return False
+
+
+def _try_initialize_database() -> None:
+    if not is_db_enabled():
+        return
+    run_sql_file()
+    logger.info("Database migrations verified.")
+
+
+def _score_if_needed(conversation_id: str | None) -> None:
+    if not conversation_id or not is_db_enabled():
+        return
+    every_n = int(os.getenv("LEAD_SCORE_EVERY_N_MESSAGES", "3"))
+    try:
+        bot_count = db_messages.get_message_count(conversation_id, sender="BOT")
+        if bot_count == 0 or bot_count % max(1, every_n) != 0:
+            return
+        score_conversation(conversation_id)
+    except DatabaseDisabledError:
+        return
+    except Exception:
+        logger.exception("Lead scoring failed", extra={"conversation_id": conversation_id})
+
+
+def _record_bot_reply(
+    conversation_id: str | None,
+    reply: str,
+    language: str | None = None,
+    tokens: int | None = None,
+    model: str | None = None,
+    latency_ms: int | None = None,
+) -> None:
+    if not conversation_id or not reply or not is_db_enabled():
+        return
+    try:
+        db_messages.append_message(
+            conversation_id,
+            "BOT",
+            reply,
+            language=language,
+            tokens=tokens,
+            model=model,
+            latency_ms=latency_ms,
+        )
+        _score_if_needed(conversation_id)
+    except DatabaseDisabledError:
+        return
+    except Exception:
+        logger.exception("Failed to record bot reply", extra={"conversation_id": conversation_id})
 
 
 def _verify_whatsapp_signature(raw_body: bytes, signature_header: str | None) -> bool:
@@ -208,6 +261,12 @@ async def lifespan(app: FastAPI):
     startup_error = None
 
     try:
+        _try_initialize_database()
+    except Exception as exc:
+        logger.exception("Database initialization failed")
+        startup_error = f"{exc.__class__.__name__}: {exc}"
+
+    try:
         settings = load_settings()
         rag = RAGPipeline(settings)
         logger.info("Initializing RAG Pipeline...")
@@ -219,6 +278,7 @@ async def lifespan(app: FastAPI):
         logger.exception("Startup initialization failed")
 
     yield
+    close_db_client()
     logger.info("Shutting down...")
 
 app = FastAPI(title="Woodmaster CNC Assistant API", lifespan=lifespan)
@@ -235,6 +295,7 @@ app.add_middleware(
 images_dir = Path("data") / "images"
 images_dir.mkdir(parents=True, exist_ok=True)
 app.mount("/data/images", StaticFiles(directory=str(images_dir)), name="images")
+app.include_router(api_router, prefix="/api")
 
 class WebhookRequest(BaseModel):
     session_id: Annotated[
@@ -289,6 +350,11 @@ async def handle_webhook(req: WebhookRequest):
         rag.memory_manager.clear(req.session_id)
 
     if flow_result.handled:
+        _record_bot_reply(
+            flow_result.conversation_id,
+            flow_result.reply,
+            language=flow_result.preferred_language,
+        )
         return {
             "session_id": req.session_id,
             "reply": flow_result.reply,
@@ -298,18 +364,29 @@ async def handle_webhook(req: WebhookRequest):
         }
     
     try:
+        started = time.time()
         response = await run_in_threadpool(
             rag.query,
             req.message,
             req.session_id,
             flow_result.preferred_language,
         )
+        latency_ms = int((time.time() - started) * 1000)
         
         final_reply = response.get("answer", "")
         if flow_result.reply:
             final_reply = f"{flow_result.reply}\n\n{final_reply}"
             
         final_images = (flow_result.images or []) + response.get("images", [])
+
+        _record_bot_reply(
+            flow_result.conversation_id,
+            final_reply.strip(),
+            language=flow_result.preferred_language,
+            tokens=((response.get("usage") or {}).get("total_tokens") if isinstance(response.get("usage"), dict) else None),
+            model=(settings.llm_model if settings else None),
+            latency_ms=latency_ms,
+        )
 
         # response should contain 'answer', 'sources', 'images'
         return {
@@ -391,6 +468,11 @@ async def whatsapp_webhook(request: Request):
         if flow_result.reply and not flow_result.handled:
             await run_in_threadpool(wa.send_text, from_number, flow_result.reply)
             await _send_public_images_whatsapp(from_number, flow_result.images or [])
+            _record_bot_reply(
+                flow_result.conversation_id,
+                flow_result.reply,
+                language=flow_result.preferred_language,
+            )
 
         if flow_result.handled:
             await _send_whatsapp_flow_response(
@@ -399,16 +481,30 @@ async def whatsapp_webhook(request: Request):
                 flow_result.options,
                 flow_result.images,
             )
+            _record_bot_reply(
+                flow_result.conversation_id,
+                flow_result.reply,
+                language=flow_result.preferred_language,
+            )
             continue
 
         # Step 2: RAG query with the user's stored language preference
         try:
+            started = time.time()
             response = await run_in_threadpool(
                 rag.query, user_text, session_id, flow_result.preferred_language
             )
             answer = (response.get("answer") or "I could not generate a response right now.").strip()
             await run_in_threadpool(wa.send_text, from_number, answer)
             await _send_public_images_whatsapp(from_number, response.get("images", []))
+            _record_bot_reply(
+                flow_result.conversation_id,
+                answer,
+                language=flow_result.preferred_language,
+                tokens=((response.get("usage") or {}).get("total_tokens") if isinstance(response.get("usage"), dict) else None),
+                model=(settings.llm_model if settings else None),
+                latency_ms=int((time.time() - started) * 1000),
+            )
         except Exception:
             logger.exception("WhatsApp processing failed", extra={"session_id": session_id})
             await run_in_threadpool(
@@ -473,6 +569,11 @@ async def messenger_webhook(request: Request):
             if flow_result.reply and not flow_result.handled:
                 # We have a greeting to send before the RAG generated answer
                 await run_in_threadpool(_send_messenger_text, psid, flow_result.reply)
+                _record_bot_reply(
+                    flow_result.conversation_id,
+                    flow_result.reply,
+                    language=flow_result.preferred_language,
+                )
                 # Note: Currently not sending images for Messenger early-greeting as it is basic,
                 # but could be added similar to WhatsApp.
 
@@ -485,14 +586,28 @@ async def messenger_webhook(request: Request):
                     )
                 else:
                     await run_in_threadpool(_send_messenger_text, psid, flow_result.reply)
+                _record_bot_reply(
+                    flow_result.conversation_id,
+                    flow_result.reply,
+                    language=flow_result.preferred_language,
+                )
                 continue
 
             try:
+                started = time.time()
                 response = await run_in_threadpool(
                     rag.query, text, session_id, flow_result.preferred_language
                 )
                 answer = (response.get("answer") or "I could not generate a response.").strip()
                 await run_in_threadpool(_send_messenger_text, psid, answer)
+                _record_bot_reply(
+                    flow_result.conversation_id,
+                    answer,
+                    language=flow_result.preferred_language,
+                    tokens=((response.get("usage") or {}).get("total_tokens") if isinstance(response.get("usage"), dict) else None),
+                    model=(settings.llm_model if settings else None),
+                    latency_ms=int((time.time() - started) * 1000),
+                )
             except Exception:
                 logger.exception("Messenger processing failed", extra={"session_id": session_id})
                 await run_in_threadpool(

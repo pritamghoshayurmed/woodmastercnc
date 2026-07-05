@@ -4,3 +4,4 @@ fastapi
 uvicorn
 cryptography
 litellm
+psycopg2-binary

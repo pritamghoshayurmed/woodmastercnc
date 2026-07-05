@@ -1,0 +1,251 @@
+from __future__ import annotations
+
+import csv
+import io
+from typing import Any
+
+from fastapi import APIRouter, HTTPException, Query
+from fastapi.responses import StreamingResponse
+from pydantic import BaseModel
+
+from src.db import conversation_summary, lead_analysis, users
+from src.db.client import DatabaseDisabledError, get_db_client
+
+
+router = APIRouter()
+
+
+class LeadUpdateRequest(BaseModel):
+    status: str | None = None
+    assignedTo: str | None = None
+    email: str | None = None
+    name: str | None = None
+    address: str | None = None
+    language: str | None = None
+
+
+def _purchase_probability(score: int) -> str:
+    if score >= 75:
+        return "High"
+    if score >= 40:
+        return "Medium"
+    return "Low"
+
+
+def _lead_row_to_payload(row: dict[str, Any]) -> dict[str, Any]:
+    score = int(row.get("lead_score") or row.get("analysis_score") or 0)
+    summary = row.get("summary") or ""
+    return {
+        "id": row["user_id"],
+        "name": row.get("name") or row["phone_number"],
+        "phone": row["phone_number"],
+        "email": row.get("email") or "",
+        "location": row.get("address") or row.get("city") or "",
+        "language": row.get("language") or "Unknown",
+        "source": row.get("source") or "WEB",
+        "score": score,
+        "status": row.get("status") or "New",
+        "lastMessage": row.get("last_message") or "",
+        "time": row.get("last_seen_human") or "",
+        "firstContact": row.get("first_seen_iso") or "",
+        "lastActivity": row.get("last_seen_iso") or "",
+        "interestedIn": row.get("product_interest") or "",
+        "assignedTo": row.get("assigned_to") or "—",
+        "aiSummary": summary,
+        "purchaseProbability": _purchase_probability(score),
+        "currentConversationId": row.get("conversation_id"),
+    }
+
+
+LEADS_BASE_QUERY = """
+WITH latest_messages AS (
+    SELECT DISTINCT ON (m.conversation_id)
+        m.conversation_id,
+        m.message,
+        m.timestamp
+    FROM messages m
+    ORDER BY m.conversation_id, m.timestamp DESC
+)
+SELECT
+    u.id AS user_id,
+    u.phone_number,
+    u.name,
+    u.email,
+    u.address,
+    u.city,
+    u.language,
+    u.source,
+    u.status,
+    u.assigned_to,
+    u.first_seen,
+    u.last_seen,
+    to_char(u.first_seen, 'YYYY-MM-DD"T"HH24:MI:SS') AS first_seen_iso,
+    to_char(u.last_seen, 'YYYY-MM-DD"T"HH24:MI:SS') AS last_seen_iso,
+    c.id AS conversation_id,
+    c.lead_score,
+    la.lead_score AS analysis_score,
+    la.product_interest,
+    cs.summary,
+    lm.message AS last_message,
+    CONCAT(EXTRACT(EPOCH FROM (now() - u.last_seen))::int, 's ago') AS last_seen_human
+FROM users u
+LEFT JOIN conversations c
+    ON c.id = u.current_conversation_id
+LEFT JOIN lead_analysis la
+    ON la.conversation_id = c.id
+LEFT JOIN conversation_summary cs
+    ON cs.conversation_id = c.id
+LEFT JOIN latest_messages lm
+    ON lm.conversation_id = c.id
+"""
+
+
+@router.get("")
+def get_leads(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(25, ge=1, le=1000),
+    source: str | None = None,
+    min_score: int | None = Query(None, ge=0, le=100),
+    max_score: int | None = Query(None, ge=0, le=100),
+    status: str | None = None,
+    language: str | None = None,
+) -> dict[str, Any]:
+    try:
+        db = get_db_client()
+    except DatabaseDisabledError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+    filters = []
+    params: list[Any] = []
+    if source:
+        filters.append("u.source = %s")
+        params.append(source)
+    if status:
+        filters.append("u.status = %s")
+        params.append(status)
+    if language:
+        filters.append("u.language = %s")
+        params.append(language)
+    if min_score is not None:
+        filters.append("COALESCE(la.lead_score, c.lead_score, 0) >= %s")
+        params.append(min_score)
+    if max_score is not None:
+        filters.append("COALESCE(la.lead_score, c.lead_score, 0) <= %s")
+        params.append(max_score)
+
+    where_clause = f"WHERE {' AND '.join(filters)}" if filters else ""
+    count_row = db.fetch_one(
+        f"SELECT COUNT(*)::int AS count FROM ({LEADS_BASE_QUERY} {where_clause}) base;",
+        tuple(params),
+    ) or {"count": 0}
+
+    params.extend([page_size, (page - 1) * page_size])
+    rows = db.fetch_all(
+        f"""
+        {LEADS_BASE_QUERY}
+        {where_clause}
+        ORDER BY u.last_seen DESC
+        LIMIT %s OFFSET %s;
+        """,
+        tuple(params),
+    )
+    return {
+        "leads": [_lead_row_to_payload(row) for row in rows],
+        "pagination": {
+            "page": page,
+            "pageSize": page_size,
+            "total": count_row["count"],
+        },
+    }
+
+
+@router.get("/export")
+def export_leads() -> StreamingResponse:
+    payload = get_leads(page=1, page_size=1000)
+    output = io.StringIO()
+    writer = csv.DictWriter(
+        output,
+        fieldnames=[
+            "id", "name", "phone", "email", "location", "language", "source",
+            "score", "status", "interestedIn", "assignedTo", "aiSummary",
+        ],
+    )
+    writer.writeheader()
+    for lead in payload["leads"]:
+        writer.writerow(lead)
+    output.seek(0)
+    return StreamingResponse(
+        iter([output.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": 'attachment; filename="woodmaster_leads.csv"'},
+    )
+
+
+@router.get("/{user_id}")
+def get_lead(user_id: str) -> dict[str, Any]:
+    try:
+        db = get_db_client()
+    except DatabaseDisabledError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+    rows = db.fetch_all(
+        f"""
+        {LEADS_BASE_QUERY}
+        WHERE u.id = %s
+        ORDER BY u.last_seen DESC;
+        """,
+        (user_id,),
+    )
+    if not rows:
+        raise HTTPException(status_code=404, detail="Lead not found.")
+
+    row = rows[0]
+    user_payload = _lead_row_to_payload(row)
+    conversation_rows = db.fetch_all(
+        """
+        SELECT id, started_at, ended_at, status, lead_score, source
+        FROM conversations
+        WHERE user_id = %s
+        ORDER BY started_at DESC;
+        """,
+        (user_id,),
+    )
+    user_payload["conversations"] = conversation_rows
+    return user_payload
+
+
+@router.put("/{user_id}")
+def update_lead(user_id: str, body: LeadUpdateRequest) -> dict[str, Any]:
+    user_row = users.get_user_by_id(user_id)
+    if user_row is None:
+        raise HTTPException(status_code=404, detail="Lead not found.")
+
+    updated = users.update_user_state(
+        user_id,
+        stage=user_row.get("conversation_state") or "FAQ",
+        language=body.language or user_row.get("language"),
+        name=body.name or user_row.get("name"),
+        address=body.address or user_row.get("address"),
+        city=user_row.get("city"),
+        state_name=user_row.get("state"),
+        country=user_row.get("country"),
+        current_conversation_id=user_row.get("current_conversation_id"),
+        status=body.status or user_row.get("status"),
+        email=body.email or user_row.get("email"),
+        assigned_to=body.assignedTo or user_row.get("assigned_to"),
+    )
+
+    current_conversation_id = updated.get("current_conversation_id")
+    summary_row = conversation_summary.get_summary(current_conversation_id) if current_conversation_id else None
+    analysis_row = lead_analysis.get_lead_analysis(current_conversation_id) if current_conversation_id else None
+    return {
+        "id": updated["id"],
+        "status": updated["status"],
+        "assignedTo": updated.get("assigned_to") or "—",
+        "email": updated.get("email") or "",
+        "name": updated.get("name") or updated["phone_number"],
+        "address": updated.get("address") or "",
+        "language": updated.get("language") or "Unknown",
+        "aiSummary": (summary_row or {}).get("summary") or "",
+        "score": (analysis_row or {}).get("lead_score") or 0,
+    }
