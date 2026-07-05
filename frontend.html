@@ -268,6 +268,88 @@
             margin-bottom: 8px;
         }
 
+        /* ── Contact card ──────────────────────────────────────────────── */
+        .contact-card {
+            align-self: flex-start;
+            max-width: 86%;
+            background-color: #202c33;
+            border-radius: 12px;
+            overflow: hidden;
+            color: #e9edef;
+            border: 1px solid #2e3d45;
+        }
+
+        .contact-card-header {
+            background: linear-gradient(135deg, #005c4b 0%, #008069 100%);
+            padding: 14px 16px 10px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .contact-card-icon {
+            width: 38px;
+            height: 38px;
+            background: rgba(255,255,255,0.18);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.25rem;
+            flex-shrink: 0;
+        }
+
+        .contact-card-title {
+            font-weight: 700;
+            font-size: 1rem;
+            color: #fff;
+        }
+
+        .contact-card-subtitle {
+            font-size: 0.78rem;
+            color: rgba(255,255,255,0.75);
+            margin-top: 2px;
+        }
+
+        .contact-card-body {
+            padding: 12px 16px;
+            font-size: 0.93rem;
+            line-height: 1.5;
+            color: #c7d0d6;
+            border-bottom: 1px solid #2e3d45;
+        }
+
+        .contact-card-actions {
+            display: flex;
+            flex-direction: column;
+            gap: 0;
+        }
+
+        .contact-action-btn {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 13px 16px;
+            color: #00a884;
+            text-decoration: none;
+            font-size: 0.97rem;
+            font-weight: 600;
+            border-top: 1px solid #2e3d45;
+            transition: background-color 0.15s;
+            cursor: pointer;
+        }
+
+        .contact-action-btn:hover {
+            background-color: #2a3942;
+        }
+
+        .contact-action-btn .btn-icon {
+            font-size: 1.15rem;
+            width: 26px;
+            text-align: center;
+            flex-shrink: 0;
+        }
+
         @media (max-width: 640px) {
             .container {
                 height: 100vh;
@@ -405,7 +487,6 @@
         // Add images if any
         images.forEach(imgUrl => {
             const imgEl = document.createElement('img');
-            // Assuming image path comes relative from backend (like "data/images/...")
             const safeUrl = imgUrl.startsWith('/') ? imgUrl : `/${imgUrl}`;
             imgEl.src = safeUrl;
             imgEl.className = 'message-image';
@@ -414,6 +495,39 @@
 
         chatArea.insertBefore(msgDiv, typingIndicator);
         chatArea.scrollTop = chatArea.scrollHeight;
+    }
+
+    function addContactCard() {
+        // Remove any previous contact card so we don't stack duplicates
+        const existing = document.querySelector('.contact-card');
+        if (existing) existing.remove();
+
+        const card = document.createElement('div');
+        card.className = 'contact-card';
+
+        card.innerHTML = `
+            <div class="contact-card-header">
+                <div class="contact-card-icon">&#128722;</div>
+                <div>
+                    <div class="contact-card-title">Woodmaster CNC</div>
+                    <div class="contact-card-subtitle">For further assistance, contact us directly</div>
+                </div>
+            </div>
+            <div class="contact-card-actions">
+                <a class="contact-action-btn" href="tel:+919434XXXXXX">
+                    <span class="btn-icon">&#128222;</span>
+                    <span>+91 9434 XXXXXX</span>
+                </a>
+                <a class="contact-action-btn" href="mailto:woodmastercnc@gmail.com">
+                    <span class="btn-icon">&#9993;</span>
+                    <span>woodmastercnc@gmail.com</span>
+                </a>
+            </div>
+        `;
+
+        chatArea.insertBefore(card, typingIndicator);
+        chatArea.scrollTop = chatArea.scrollHeight;
+        // Input stays active — user can keep asking
     }
 
     async function sendMessage(preFilledText = '') {
@@ -453,7 +567,14 @@
             const data = await response.json();
             
             typingIndicator.style.display = 'none';
+
+            // Always show the LLM answer as a normal bubble first
             addMessage(data.reply, false, data.images || [], data.options || []);
+
+            // Then, if we're over the turn limit, append the contact card
+            if (data.contact_forced) {
+                addContactCard();
+            }
         } catch (error) {
             typingIndicator.style.display = 'none';
             addMessage("Oops! Could not connect to the assistant.", false);
