@@ -9,19 +9,20 @@ from difflib import SequenceMatcher
 from src.config import Settings
 from src.memory.context_manager import ContextManager
 from src.memory.memory_manager import ConversationMemoryManager
-from src.rag.generation import GeneratorRateLimitError, SarvamGenerator
+from src.rag.generation import GeneratorRateLimitError, LiteLLMGenerator
 from src.rag.types import DocumentChunk, RAGResponse, RetrievedChunk
 
 
 class RAGPipeline:
 	def __init__(self, settings: Settings) -> None:
 		self.settings = settings
-		self.generator = SarvamGenerator(
-			api_key=settings.sarvam_api_key,
-			model=settings.sarvam_generation_model,
-			temperature=settings.sarvam_temperature,
-			top_p=settings.sarvam_top_p,
-			max_tokens=settings.sarvam_max_output_tokens,
+		self.generator = LiteLLMGenerator(
+			api_key=settings.nvidia_nim_api_key,
+			model=settings.llm_model,
+			fallback_model=settings.llm_fallback_model,
+			temperature=settings.llm_temperature,
+			top_p=settings.llm_top_p,
+			max_tokens=settings.llm_max_output_tokens,
 		)
 		self.context_manager = ContextManager(max_context_chars=settings.max_context_chars)
 		self.memory_manager = ConversationMemoryManager(
@@ -349,12 +350,48 @@ class RAGPipeline:
 		extra_terms: list[str] = []
 
 		alias_groups = [
-			({"kon machine", "which machine", "kon model", "best model", "recommend", "newa jai", "nibo", "bhabchilam"}, "recommended model machine choice woodworking"),
-			({"dam", "price", "koto", "cost", "quotation"}, "price quotation machine cost"),
-			({"emi", "finance", "loan", "bank"}, "emi finance bank funding"),
-			({"training", "shikhiye", "install", "support"}, "training installation support"),
-			({"chair", "furniture", "wood", "kath", "carving", "design"}, "woodworking chair furniture carving"),
-			({"warranty", "guarantee"}, "warranty service support"),
+			(
+				{
+					"kon machine", "which machine", "kon model", "best model", "recommend",
+					"newa jai", "nibo", "bhabchilam", "macine", "macines", "mishin", "mishines",
+					"machine", "machines", "model", "models", "ki ki", "kon kon", "মেশিন", "মডেল",
+					"টাইপ", "আছে", "কি কি", "কোন কোন", "নেব", "কিনব", "list", "available"
+				},
+				"recommended model machine choice woodworking standard models"
+			),
+			(
+				{
+					"dam", "price", "koto", "cost", "quotation", "budget", "taka", "rupee",
+					"দাম", "কত", "টাকা", "মূল্য"
+				},
+				"price quotation machine cost budget"
+			),
+			(
+				{
+					"emi", "finance", "loan", "bank", "kisti", "কিস্তি", "লোন", "ব্যাংক"
+				},
+				"emi finance bank funding"
+			),
+			(
+				{
+					"training", "shikhiye", "install", "installation", "support", "shikha",
+					"ট্রেনিং", "শেখানো", "ইন্সটল", "সাপোর্ট"
+				},
+				"training installation support"
+			),
+			(
+				{
+					"chair", "furniture", "wood", "kath", "carving", "design", "material",
+					"board", "sheet", "plywood", "mdf", "acrylic", "কাঠ", "ডিজাইন", "বোর্ড", "শীট"
+				},
+				"woodworking chair furniture carving materials processed"
+			),
+			(
+				{
+					"warranty", "guarantee", "ওয়ারেন্টি", "গ্যারান্টি", "ওয়ারেন্টি"
+				},
+				"warranty service support"
+			),
 		]
 
 		for aliases, expansion in alias_groups:
@@ -390,39 +427,57 @@ class RAGPipeline:
 
 		intent_groups = [
 			(
-				{"kon machine", "which machine", "kon model", "best model", "recommend", "newa jai", "nibo", "bhabchilam"},
-				{"recommend", "model"},
+				{
+					"kon machine", "which machine", "kon model", "best model", "recommend",
+					"newa jai", "nibo", "bhabchilam", "macine", "macines", "mishin", "mishines",
+					"machine", "machines", "model", "models", "ki ki", "kon kon", "মেশিন", "মডেল",
+					"টাইপ", "আছে", "কি কি", "কোন কোন", "নেব", "কিনব", "list", "available"
+				},
+				{"model"},
 				0.28,
 			),
 			(
-				{"price", "dam", "koto", "quotation", "cost"},
+				{
+					"dam", "price", "koto", "cost", "quotation", "budget", "taka", "rupee",
+					"দাম", "কত", "টাকা", "মূল্য"
+				},
 				{"price"},
 				0.28,
 			),
 			(
-				{"emi", "finance", "loan", "bank"},
+				{
+					"emi", "finance", "loan", "bank", "kisti", "কিস্তি", "লোন", "ব্যাংক"
+				},
 				{"emi", "finance"},
 				0.28,
 			),
 			(
-				{"training", "install", "support"},
+				{
+					"training", "shikhiye", "install", "installation", "support", "shikha",
+					"ট্রেনিং", "শেখানো", "ইন্সটল", "সাপোর্ট"
+				},
 				{"training"},
 				0.22,
 			),
 			(
-				{"warranty", "guarantee"},
+				{
+					"warranty", "guarantee", "ওয়ারেন্টি", "গ্যারান্টি", "ওয়ারেন্টি"
+				},
 				{"warranty"},
 				0.22,
 			),
 			(
-				{"material", "wood", "kath", "chair", "furniture", "acrylic", "plywood"},
+				{
+					"chair", "furniture", "wood", "kath", "carving", "design", "material",
+					"board", "sheet", "plywood", "mdf", "acrylic", "কাঠ", "ডিজাইন", "বোর্ড", "শীট"
+				},
 				{"materials", "processed"},
 				0.18,
 			),
 		]
 
 		for query_aliases, chunk_markers, amount in intent_groups:
-			if any(alias in query_text for alias in query_aliases) and all(marker in chunk_question for marker in chunk_markers):
+			if any(alias in query_text for alias in query_aliases) and any(marker in chunk_question for marker in chunk_markers):
 				boost += amount
 
 		return boost
@@ -461,7 +516,7 @@ class RAGPipeline:
 	def _resolve_images(self, question: str, retrieved) -> list[str]:
 		selected: list[str] = []
 		product_tags: set[str] = set()
-		
+
 		for item in retrieved:
 			chunk_images = item.chunk.metadata.get("images", [])
 			product_tag = item.chunk.metadata.get("product_tag")
@@ -540,4 +595,3 @@ class RAGPipeline:
 			"I couldn't find a confirmed answer for that in the current FAQ file yet. "
 			"If you want, I can help you add this answer to `data/knowledge.md` once you confirm the exact details."
 		)
-
