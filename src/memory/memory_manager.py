@@ -10,6 +10,11 @@ from pathlib import Path
 
 from cryptography.fernet import Fernet, InvalidToken
 
+from src.db import conversations as db_conversations
+from src.db import messages as db_messages
+from src.db import users as db_users
+from src.db.client import is_db_enabled
+
 
 logger = logging.getLogger(__name__)
 
@@ -70,6 +75,10 @@ class ConversationMemoryManager:
 		return json.loads(data.decode("utf-8"))
 
 	def _load_session(self, session_id: str) -> deque[dict[str, str]]:
+		# Durable deployments keep conversation history in PostgreSQL. File-backed
+		# history is deliberately a development-only fallback (DB_ENABLED=false).
+		if is_db_enabled():
+			return deque(self._database_history(session_id), maxlen=self.max_turns * 2)
 		if session_id in self._sessions:
 			return self._sessions[session_id]
 
@@ -90,6 +99,24 @@ class ConversationMemoryManager:
 		
 		self._sessions[session_id] = history
 		return history
+
+	def _database_history(self, session_id: str) -> list[dict[str, str]]:
+		"""Return the active conversation transcript in the format used by RAG."""
+		user = db_users.get_user_by_phone(session_id)
+		if not user:
+			return []
+		conversation = db_conversations.get_active_conversation(user["id"])
+		if not conversation:
+			return []
+		rows = db_messages.get_conversation_messages(conversation["id"], limit=self.max_turns * 2)
+		return [
+			{
+				"role": "assistant" if row.get("sender") == "BOT" else "user",
+				"content": self._normalize_message(str(row.get("message") or "")),
+			}
+			for row in rows
+			if row.get("sender") in {"USER", "BOT"} and str(row.get("message") or "").strip()
+		]
 
 	def _archive_unreadable_session(self, session_file: Path) -> None:
 		if not session_file.exists():
@@ -118,6 +145,10 @@ class ConversationMemoryManager:
 		return re.sub(r"\s+", " ", message).strip()
 
 	def _append_message(self, session_id: str, role: str, message: str) -> None:
+		# Request handlers record USER and BOT messages in the database. Do not
+		# duplicate them or create local transcripts while DB persistence is active.
+		if is_db_enabled():
+			return
 		normalized = self._normalize_message(message)
 		if not normalized:
 			return
@@ -160,6 +191,9 @@ class ConversationMemoryManager:
 		return filtered[-max_messages:]
 
 	def clear(self, session_id: str) -> None:
+		# Timeouts create a new conversation; prior DB messages stay for audit.
+		if is_db_enabled():
+			return
 		self._sessions.pop(session_id, None)
 		session_file = self._get_session_file(session_id)
 		if session_file.exists():

@@ -91,7 +91,13 @@ def _try_initialize_rag() -> bool:
 
 def _try_initialize_database() -> None:
     if not is_db_enabled():
+        if os.getenv("REQUIRE_DATABASE", "true").strip().lower() in {"1", "true", "yes", "on"}:
+            raise RuntimeError("Persistent conversation state requires DB_ENABLED=true and DATABASE_URL or DATABASE_POOLER_URL.")
+        logger.warning("Database is disabled; conversation state will not survive process restarts.")
         return
+    if os.getenv("REQUIRE_SALES_CONTACT", "true").strip().lower() in {"1", "true", "yes", "on"}:
+        if not os.getenv("SALES_PHONE", "").strip() or not os.getenv("SALES_EMAIL", "").strip():
+            raise RuntimeError("SALES_PHONE and SALES_EMAIL must be configured for the sales handoff.")
     run_sql_file()
     logger.info("Database migrations verified.")
 
@@ -136,6 +142,30 @@ def _record_bot_reply(
         return
     except Exception:
         logger.exception("Failed to record bot reply", extra={"conversation_id": conversation_id})
+
+
+def _add_sales_contact_prompt(reply: str, flow_result) -> str:
+    """Append the one-time sales handoff after the configured chat-turn threshold."""
+    if not flow_result.contact_forced:
+        return reply
+
+    phone = os.getenv("SALES_PHONE", "").strip()
+    email = os.getenv("SALES_EMAIL", "").strip()
+    language = flow_result.preferred_language
+    if language == "Hindi":
+        handoff = f"अधिक व्यक्तिगत सहायता या कोटेशन के लिए हमारी सेल्स टीम से संपर्क करें: {phone} | {email}"
+    elif language == "Bengali":
+        handoff = f"আরও ব্যক্তিগত সহায়তা বা কোটেশনের জন্য আমাদের সেলস টিমের সাথে যোগাযোগ করুন: {phone} | {email}"
+    else:
+        handoff = f"For personalised assistance or a quotation, please contact our sales team: {phone} | {email}"
+
+    if flow_result.conversation_id and is_db_enabled():
+        try:
+            from src.db import conversations as db_conversations
+            db_conversations.set_contact_shared(flow_result.conversation_id, True)
+        except Exception:
+            logger.exception("Failed to mark sales contact as shared", extra={"conversation_id": flow_result.conversation_id})
+    return f"{reply.rstrip()}\n\n{handoff}"
 
 
 def _verify_whatsapp_signature(raw_body: bytes, signature_header: str | None) -> bool:
@@ -360,6 +390,7 @@ async def handle_webhook(req: WebhookRequest):
             "reply": flow_result.reply,
             "images": flow_result.images or [],
             "options": flow_result.options or [],
+            "flow_stage": flow_result.stage,
             "metadata": [],
         }
     
@@ -376,6 +407,7 @@ async def handle_webhook(req: WebhookRequest):
         final_reply = response.get("answer", "")
         if flow_result.reply:
             final_reply = f"{flow_result.reply}\n\n{final_reply}"
+        final_reply = _add_sales_contact_prompt(final_reply, flow_result)
             
         final_images = (flow_result.images or []) + response.get("images", [])
 
@@ -394,6 +426,7 @@ async def handle_webhook(req: WebhookRequest):
             "reply": final_reply.strip(),
             "images": final_images,
             "options": [],
+            "flow_stage": flow_result.stage,
             "metadata": response.get("retrieval", [])
         }
     except Exception as exc:
@@ -495,6 +528,7 @@ async def whatsapp_webhook(request: Request):
                 rag.query, user_text, session_id, flow_result.preferred_language
             )
             answer = (response.get("answer") or "I could not generate a response right now.").strip()
+            answer = _add_sales_contact_prompt(answer, flow_result)
             await run_in_threadpool(wa.send_text, from_number, answer)
             await _send_public_images_whatsapp(from_number, response.get("images", []))
             _record_bot_reply(
@@ -599,6 +633,7 @@ async def messenger_webhook(request: Request):
                     rag.query, text, session_id, flow_result.preferred_language
                 )
                 answer = (response.get("answer") or "I could not generate a response.").strip()
+                answer = _add_sales_contact_prompt(answer, flow_result)
                 await run_in_threadpool(_send_messenger_text, psid, answer)
                 _record_bot_reply(
                     flow_result.conversation_id,

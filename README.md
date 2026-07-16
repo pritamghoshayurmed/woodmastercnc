@@ -4,7 +4,7 @@ This project runs a Woodmaster CNC sales and support assistant powered by:
 
 - `data/knowledge.md` as the FAQ knowledge source
 - Sarvam for grounded response generation
-- session-based memory for short follow-up context
+- PostgreSQL-backed onboarding state and session-based short follow-up context
 - WhatsApp and Messenger webhook integrations
 
 ## Key Files
@@ -37,6 +37,13 @@ MESSENGER_VERIFY_TOKEN=your_messenger_verify_token
 
 PUBLIC_BASE_URL=https://your-public-domain
 SESSION_ENCRYPTION_KEY=optional_custom_key
+DB_ENABLED=true
+DATABASE_POOLER_URL=postgresql://... # preferred for VPS/managed PostgreSQL
+REQUIRE_DATABASE=true
+SALES_PHONE=+91XXXXXXXXXX
+SALES_EMAIL=sales@example.com
+REQUIRE_SALES_CONTACT=true
+MAX_CHAT_TURNS=6
 RAG_TOP_K=5
 RAG_MEMORY_TURNS=8
 RAG_MAX_CONTEXT_CHARS=5000
