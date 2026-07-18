@@ -5,7 +5,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 
-from src.db import conversation_summary, conversations, lead_analysis, messages
+from src.db import conversation_summary, conversations, lead_analysis, messages, users
 from src.db.client import DatabaseDisabledError, get_db_client
 from src.lead.scorer import score_conversation
 
@@ -107,6 +107,7 @@ def append_conversation_message(conversation_id: str, body: AppendMessageRequest
         body.text,
         language=body.language,
     )
+    users.update_user_last_seen(conversation_row["user_id"])
     analysis = score_conversation(conversation_id)
     updated_messages = messages.get_conversation_messages(conversation_id, limit=500)
     return {
@@ -114,3 +115,10 @@ def append_conversation_message(conversation_id: str, body: AppendMessageRequest
         "messages": updated_messages,
         "leadAnalysis": analysis,
     }
+
+
+@router.post("/{conversation_id}/score")
+def rescore_conversation(conversation_id: str) -> dict[str, Any]:
+    if conversations.get_conversation_by_id(conversation_id) is None:
+        raise HTTPException(status_code=404, detail="Conversation not found.")
+    return {"leadAnalysis": score_conversation(conversation_id)}

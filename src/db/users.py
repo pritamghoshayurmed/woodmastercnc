@@ -50,6 +50,7 @@ def update_user_state(
     status: str | None = None,
     email: str | None = None,
     assigned_to: str | None = None,
+    touch_last_seen: bool = True,
 ) -> dict[str, Any]:
     row = get_db_client().execute_returning(
         """
@@ -66,7 +67,7 @@ def update_user_state(
             status = COALESCE(%s, status),
             email = COALESCE(%s, email),
             assigned_to = COALESCE(%s, assigned_to),
-            last_seen = now(),
+            last_seen = CASE WHEN %s THEN now() ELSE last_seen END,
             updated_at = now()
         WHERE id = %s
         RETURNING *;
@@ -83,6 +84,7 @@ def update_user_state(
             status,
             email,
             assigned_to,
+            touch_last_seen,
             user_id,
         ),
     )

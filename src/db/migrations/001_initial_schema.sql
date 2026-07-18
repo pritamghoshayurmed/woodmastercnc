@@ -25,6 +25,14 @@ CREATE INDEX IF NOT EXISTS idx_users_phone ON users(phone_number);
 CREATE INDEX IF NOT EXISTS idx_users_status ON users(status);
 CREATE INDEX IF NOT EXISTS idx_users_last_seen ON users(last_seen DESC);
 
+-- CRM presentation fields are intentionally separate from `status`, which is
+-- already used by the conversational workflow (New, Qualified, etc.).
+ALTER TABLE users ADD COLUMN IF NOT EXISTS dashboard_state VARCHAR(20) NOT NULL DEFAULT 'normal';
+ALTER TABLE users ADD COLUMN IF NOT EXISTS manager_note TEXT NOT NULL DEFAULT '';
+ALTER TABLE users ADD COLUMN IF NOT EXISTS manual_order INTEGER NOT NULL DEFAULT 0;
+CREATE INDEX IF NOT EXISTS idx_users_dashboard_state ON users(dashboard_state);
+CREATE INDEX IF NOT EXISTS idx_users_manual_order ON users(manual_order);
+
 CREATE TABLE IF NOT EXISTS conversations (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,

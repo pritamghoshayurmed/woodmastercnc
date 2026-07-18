@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import csv
 import io
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import StreamingResponse
@@ -22,6 +22,9 @@ class LeadUpdateRequest(BaseModel):
     name: str | None = None
     address: str | None = None
     language: str | None = None
+    dashboardState: Literal["normal", "favourite", "archived"] | None = None
+    note: str | None = None
+    manualOrder: int | None = None
 
 
 def _purchase_probability(score: int) -> str:
@@ -33,8 +36,14 @@ def _purchase_probability(score: int) -> str:
 
 
 def _lead_row_to_payload(row: dict[str, Any]) -> dict[str, Any]:
-    score = int(row.get("lead_score") or row.get("analysis_score") or 0)
+    score = int(
+        row["analysis_score"]
+        if row.get("analysis_score") is not None
+        else (row.get("lead_score") or 0)
+    )
     summary = row.get("summary") or ""
+    potential = "Hot" if score >= 75 else "Warm" if score >= 40 else "Cold"
+    dashboard_state = row.get("dashboard_state") or "normal"
     return {
         "id": row["user_id"],
         "name": row.get("name") or row["phone_number"],
@@ -43,7 +52,9 @@ def _lead_row_to_payload(row: dict[str, Any]) -> dict[str, Any]:
         "location": row.get("address") or row.get("city") or "",
         "language": row.get("language") or "Unknown",
         "source": row.get("source") or "WEB",
-        "score": score,
+        "score": score,  # Kept for existing API consumers.
+        "leadScore": score,
+        "potential": potential,
         "status": row.get("status") or "New",
         "lastMessage": row.get("last_message") or "",
         "time": row.get("last_seen_human") or "",
@@ -54,6 +65,11 @@ def _lead_row_to_payload(row: dict[str, Any]) -> dict[str, Any]:
         "aiSummary": summary,
         "purchaseProbability": _purchase_probability(score),
         "currentConversationId": row.get("conversation_id"),
+        "conversationId": row.get("conversation_id"),
+        "dashboardState": dashboard_state,
+        "note": row.get("manager_note") or "",
+        "manualOrder": int(row.get("manual_order") or 0),
+        "unreadCount": 0,
     }
 
 
@@ -77,6 +93,9 @@ SELECT
     u.source,
     u.status,
     u.assigned_to,
+    u.dashboard_state,
+    u.manager_note,
+    u.manual_order,
     u.first_seen,
     u.last_seen,
     to_char(u.first_seen, 'YYYY-MM-DD"T"HH24:MI:SS') AS first_seen_iso,
@@ -109,6 +128,10 @@ def get_leads(
     max_score: int | None = Query(None, ge=0, le=100),
     status: str | None = None,
     language: str | None = None,
+    potential: Literal["Hot", "Warm", "Cold"] | None = None,
+    view: Literal["active", "archived", "all"] = "active",
+    search: str | None = Query(None, max_length=200),
+    sort: Literal["date", "manual", "potential"] = "date",
 ) -> dict[str, Any]:
     try:
         db = get_db_client()
@@ -126,6 +149,20 @@ def get_leads(
     if language:
         filters.append("u.language = %s")
         params.append(language)
+    if view == "active":
+        filters.append("COALESCE(u.dashboard_state, 'normal') <> 'archived'")
+    elif view == "archived":
+        filters.append("COALESCE(u.dashboard_state, 'normal') = 'archived'")
+    if potential == "Hot":
+        filters.append("COALESCE(la.lead_score, c.lead_score, 0) >= 75")
+    elif potential == "Warm":
+        filters.append("COALESCE(la.lead_score, c.lead_score, 0) BETWEEN 40 AND 74")
+    elif potential == "Cold":
+        filters.append("COALESCE(la.lead_score, c.lead_score, 0) < 40")
+    if search:
+        filters.append("(COALESCE(u.name, '') ILIKE %s OR u.phone_number ILIKE %s OR COALESCE(u.email, '') ILIKE %s)")
+        term = f"%{search.strip()}%"
+        params.extend([term, term, term])
     if min_score is not None:
         filters.append("COALESCE(la.lead_score, c.lead_score, 0) >= %s")
         params.append(min_score)
@@ -139,12 +176,17 @@ def get_leads(
         tuple(params),
     ) or {"count": 0}
 
+    order_by = {
+        "date": "u.last_seen DESC",
+        "manual": "u.manual_order ASC, u.last_seen DESC",
+        "potential": "COALESCE(la.lead_score, c.lead_score, 0) DESC, u.last_seen DESC",
+    }[sort]
     params.extend([page_size, (page - 1) * page_size])
     rows = db.fetch_all(
         f"""
         {LEADS_BASE_QUERY}
         {where_clause}
-        ORDER BY u.last_seen DESC
+        ORDER BY {order_by}
         LIMIT %s OFFSET %s;
         """,
         tuple(params),
@@ -233,7 +275,22 @@ def update_lead(user_id: str, body: LeadUpdateRequest) -> dict[str, Any]:
         status=body.status or user_row.get("status"),
         email=body.email or user_row.get("email"),
         assigned_to=body.assignedTo or user_row.get("assigned_to"),
+        touch_last_seen=False,
     )
+
+    if body.dashboardState is not None or body.note is not None or body.manualOrder is not None:
+        updated = get_db_client().execute_returning(
+            """
+            UPDATE users
+            SET dashboard_state = COALESCE(%s, dashboard_state),
+                manager_note = COALESCE(%s, manager_note),
+                manual_order = COALESCE(%s, manual_order),
+                updated_at = now()
+            WHERE id = %s
+            RETURNING *;
+            """,
+            (body.dashboardState, body.note, body.manualOrder, user_id),
+        ) or updated
 
     current_conversation_id = updated.get("current_conversation_id")
     summary_row = conversation_summary.get_summary(current_conversation_id) if current_conversation_id else None
@@ -248,4 +305,7 @@ def update_lead(user_id: str, body: LeadUpdateRequest) -> dict[str, Any]:
         "language": updated.get("language") or "Unknown",
         "aiSummary": (summary_row or {}).get("summary") or "",
         "score": (analysis_row or {}).get("lead_score") or 0,
+        "dashboardState": updated.get("dashboard_state") or "normal",
+        "note": updated.get("manager_note") or "",
+        "manualOrder": int(updated.get("manual_order") or 0),
     }

@@ -70,6 +70,27 @@ python qa.py
 - `GET /messenger/webhook`: Meta verification
 - `POST /messenger/webhook`: incoming Messenger messages
 
+## Operations Dashboard
+
+The React dashboard lives in `dasboardui/wmcnc-dashboard`. It reads the live
+PostgreSQL-backed API (not local mock records). Start the API on port 8000, then:
+
+```bash
+cd dasboardui/wmcnc-dashboard
+npm install
+npm run dev
+```
+
+For a separately deployed dashboard, set `VITE_API_BASE_URL` at build time to
+the public API base (for example `https://api.example.com/api`). The backend
+applies the schema additions automatically at startup and exposes:
+
+- `GET /api/dashboard/overview`
+- `GET /api/leads` and `PUT /api/leads/{user_id}`
+- `GET /api/conversations/{conversation_id}`
+- `POST /api/conversations/{conversation_id}/messages`
+- `POST /api/conversations/{conversation_id}/score`
+
 ## Notes
 
 - The bot only answers Woodmaster CNC related queries.
