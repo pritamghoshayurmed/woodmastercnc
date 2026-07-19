@@ -79,3 +79,15 @@ def set_contact_shared(conversation_id: str, contact_shared: bool) -> None:
         """,
         (contact_shared, conversation_id),
     )
+
+
+def mark_human_handled(conversation_id: str) -> None:
+    """Record the first manual owner/agent reply without changing the chat status."""
+    get_db_client().execute(
+        """
+        UPDATE conversations
+        SET human_handled_at = COALESCE(human_handled_at, now()), updated_at = now()
+        WHERE id = %s;
+        """,
+        (conversation_id,),
+    )

@@ -107,6 +107,8 @@ def append_conversation_message(conversation_id: str, body: AppendMessageRequest
         body.text,
         language=body.language,
     )
+    if body.sender.upper() == "AGENT":
+        conversations.mark_human_handled(conversation_id)
     users.update_user_last_seen(conversation_row["user_id"])
     analysis = score_conversation(conversation_id)
     updated_messages = messages.get_conversation_messages(conversation_id, limit=500)

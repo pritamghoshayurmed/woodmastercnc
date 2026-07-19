@@ -69,6 +69,8 @@ def _lead_row_to_payload(row: dict[str, Any]) -> dict[str, Any]:
         "dashboardState": dashboard_state,
         "note": row.get("manager_note") or "",
         "manualOrder": int(row.get("manual_order") or 0),
+        "manualHandled": row.get("human_handled_at") is not None,
+        "humanHandledAt": row.get("human_handled_at"),
         "unreadCount": 0,
     }
 
@@ -101,6 +103,7 @@ SELECT
     to_char(u.first_seen, 'YYYY-MM-DD"T"HH24:MI:SS') AS first_seen_iso,
     to_char(u.last_seen, 'YYYY-MM-DD"T"HH24:MI:SS') AS last_seen_iso,
     c.id AS conversation_id,
+    c.human_handled_at,
     c.lead_score,
     la.lead_score AS analysis_score,
     la.product_interest,
@@ -132,6 +135,7 @@ def get_leads(
     view: Literal["active", "archived", "all"] = "active",
     search: str | None = Query(None, max_length=200),
     sort: Literal["date", "manual", "potential"] = "date",
+    manual_handled: bool = False,
 ) -> dict[str, Any]:
     try:
         db = get_db_client()
@@ -153,6 +157,8 @@ def get_leads(
         filters.append("COALESCE(u.dashboard_state, 'normal') <> 'archived'")
     elif view == "archived":
         filters.append("COALESCE(u.dashboard_state, 'normal') = 'archived'")
+    if manual_handled:
+        filters.append("c.human_handled_at IS NOT NULL")
     if potential == "Hot":
         filters.append("COALESCE(la.lead_score, c.lead_score, 0) >= 75")
     elif potential == "Warm":

@@ -52,6 +52,13 @@ CREATE INDEX IF NOT EXISTS idx_conversations_user_id ON conversations(user_id);
 CREATE INDEX IF NOT EXISTS idx_conversations_status ON conversations(status);
 CREATE INDEX IF NOT EXISTS idx_conversations_started_at ON conversations(started_at DESC);
 
+-- Set once an owner/agent takes over the conversation. This is separate from
+-- the lifecycle status so the full AI + human history remains available.
+ALTER TABLE conversations ADD COLUMN IF NOT EXISTS human_handled_at TIMESTAMP;
+CREATE INDEX IF NOT EXISTS idx_conversations_human_handled_at
+    ON conversations(human_handled_at DESC)
+    WHERE human_handled_at IS NOT NULL;
+
 DO $$
 BEGIN
     IF NOT EXISTS (
