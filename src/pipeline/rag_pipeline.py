@@ -11,6 +11,7 @@ from src.memory.context_manager import ContextManager
 from src.memory.memory_manager import ConversationMemoryManager
 from src.rag.generation import GeneratorRateLimitError, LiteLLMGenerator
 from src.rag.types import DocumentChunk, RAGResponse, RetrievedChunk
+from src.product_catalog import build_catalog, find_product, format_catalog, load_catalog
 
 
 class RAGPipeline:
@@ -31,10 +32,14 @@ class RAGPipeline:
 			encryption_key=settings.session_encryption_key,
 		)
 		self.knowledge_chunks: list[DocumentChunk] = []
+		self.product_catalog: list[dict[str, Any]] = []
 
 	def initialize(self, force_rebuild: bool = False) -> None:
 		self.settings.artifact_dir.mkdir(parents=True, exist_ok=True)
 		self.knowledge_chunks = self._load_knowledge_base(self.settings.knowledge_base_path)
+		self.knowledge_chunks.extend(self._load_product_descriptions(self.settings.data_dir / "productdescription.md"))
+		catalog_path = self.settings.data_dir / "product_catalog.json"
+		self.product_catalog = build_catalog(self.settings.data_dir / "productspecification.md", catalog_path) if force_rebuild or not catalog_path.exists() else load_catalog(catalog_path)
 		if not self.knowledge_chunks:
 			raise ValueError(f"No FAQ entries found in {self.settings.knowledge_base_path}.")
 
@@ -45,6 +50,11 @@ class RAGPipeline:
 		preferred_language: str | None = None,
 	) -> dict:
 		self.memory_manager.add_user_message(session_id, question)
+		product = find_product(question, self.product_catalog)
+		if product:
+			answer = format_catalog(product)
+			self.memory_manager.add_assistant_message(session_id, answer)
+			return {"answer": answer, "sources": ["data/product_catalog.json"], "images": [product["image"]] if product.get("image") else [], "catalog": product, "retrieval": []}
 
 		recent_history = self.memory_manager.get_context_window(
 			session_id=session_id,
@@ -102,6 +112,20 @@ class RAGPipeline:
 		preferred_language: str | None = None,
 	):
 		self.memory_manager.add_user_message(session_id, question)
+		product = find_product(question, self.product_catalog)
+		if product:
+			answer = format_catalog(product)
+			yield {
+				"type": "metadata",
+				"sources": ["data/product_catalog.json"],
+				"images": [product["image"]] if product.get("image") else [],
+				"catalog": product,
+				"retrieval": [],
+			}
+			yield {"type": "chunk", "content": answer}
+			self.memory_manager.add_assistant_message(session_id, answer)
+			yield {"type": "done"}
+			return
 
 		recent_history = self.memory_manager.get_context_window(
 			session_id=session_id,
@@ -197,6 +221,19 @@ class RAGPipeline:
 					metadata=metadata,
 				)
 			)
+		return chunks
+
+	def _load_product_descriptions(self, description_path: Path) -> list[DocumentChunk]:
+		if not description_path.exists():
+			raise FileNotFoundError(f"Product description file not found: {description_path}")
+		text = description_path.read_text(encoding="utf-8").replace("\r\n", "\n")
+		matches = re.finditer(r"product name\s*:\s*(.+?)\s*,?\s*\n\s*description\s*:\s*(.*?)(?=\n\s*product name\s*:|\Z)", text, re.IGNORECASE | re.DOTALL)
+		source = str(description_path.relative_to(self.settings.data_dir.parent)).replace("\\", "/")
+		chunks: list[DocumentChunk] = []
+		for index, match in enumerate(matches, start=1):
+			name = re.sub(r"\s+", " ", match.group(1)).strip(" ,")
+			description = re.sub(r"\s+", " ", match.group(2)).strip()
+			chunks.append(DocumentChunk(chunk_id=f"product-description-{index}", text=f"Product: {name}\nDescription: {description}", source=source, metadata={"content_type": "product_description", "product_name": name, "answer": description, "is_placeholder": False}))
 		return chunks
 
 	def _parse_faq_entries(self, text: str) -> list[dict[str, Any]]:

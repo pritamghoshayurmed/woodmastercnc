@@ -1,0 +1,180 @@
+{
+  "products": [
+    {
+      "id": "wm-1325-1625-1825-b",
+      "name": "WM 1325/1625/1825 B",
+      "description": "WM 1325/1625/1825 B is a reliable and cost-effective industrial CNC router designed for accurate cutting and consistent performance. Featuring a 4.5kW HQD spindle, 450W stepper motor system, durable steel construction, and essential protection features, it is ideal for woodworking, MDF, acrylic, PVC, aluminum, and a wide range of precision machining applications.",
+      "image": "data/images/wm1235B.png",
+      "technical_specifications": [
+        "STEEPER MOTOR & DRIVE .[450watt,YAKOTEC/DEZAW]",
+        "PLANETORY GEARBOX 1:10 RATIO [Redovic]/BELT PULLEY GEAR BOX",
+        "25 MM RAIL+ BLOCK[KUNIX MAKE],25MM RACK [REDOVIC]",
+        "BALLSCREW 25/10 [KUNIX MAKE]",
+        "COUPLING ON ZAXIS [MIKIPULLY- JAPAN]",
+        "SPINDLE 4.5 KW 220 V[ HQD]",
+        "VFD [DEZAW]",
+        "RACK & PINION 25MM ,1.25M [REDOVIC ]",
+        "NK 105G 3/RICH AUTO A11 CONTROLLER",
+        "ALUMINIUM KEY SLOT BED,WITH BLACK SILICON SHEET",
+        "MACHINE SCRUCTURE 5 MM TATA/NEZONE/APOLLO/JSW MAKE",
+        "VOLTAGE METER",
+        "VOLTAGE FLUCTUATION PROTECTION ALARM",
+        "SPINDLE TEMP CONTROL",
+        ". VOLT-220V-1PHASE",
+        "TOTAL LOAD–8KW",
+        "EMI FILTER 20A 5PIECE [TO PROCECT DRIVES]",
+        "RELEY 6POLE",
+        "VRIBRATION PAD 6 PIECE"
+      ],
+      "toolbox_contents": [
+        "CLAMP 6 PIECE",
+        "SECCOR 1 PIECE",
+        "ALENKEY SET 1 BOX[ TAPARIA]",
+        "SPANNERS FOR SPIENDLE",
+        "COLLETER 32 COLLETS 1PIECE EACH SIZE",
+        "ALL TYPE OF TOOLS MIX 10PIECE",
+        "WM CNC TECH TSHIRT"
+      ],
+      "unique_features": [
+        "NIGHTMODE",
+        "MOBILECONTROLLING [UNDER R&D]",
+        "ORIGIN LAMP"
+      ]
+    },
+    {
+      "id": "wm-1325-1625-1825-a-plus",
+      "name": "WM 1325/1625/1825 A+",
+      "description": "WM 1325/1625/1825 A+ is a premium industrial CNC router designed for high precision, speed, and reliability. Featuring a powerful 4.5kW HQD spindle, AC servo system, robust steel construction, and advanced safety features, it delivers exceptional performance for woodworking, acrylic, MDF, PVC, aluminum, and other precision machining applications.",
+      "image": "data/images/wm1325A+.png",
+      "technical_specifications": [
+        "AC Servo Motor & Drive – 750 W (Dezaw Intelligent)",
+        "Planetary Gearbox – 1:10 Ratio (Redovic / Tornex)",
+        "25 mm Linear Rail & Block (Kunix) + 25 mm Rack (Redovic)",
+        "Ball Screw 25/10 (Kunix)",
+        "Z-Axis Coupling (Miki Pulley, Japan)",
+        "4.5 kW HQD Spindle (220 V)",
+        "Variable Frequency Drive (VFD) – Dezaw",
+        "25 mm Rack & Pinion, 1.25 Module (Redovic)",
+        "VPR with Servo Emergency Alarm System",
+        "Three-Tier Tower Light with Emergency Buzzer",
+        "NK105 G2 / G3 CNC Controller",
+        "Aluminium T-Slot Bed with Black Silicone Sheet",
+        "Heavy-Duty Machine Structure (8 mm) – Tata / Nezone / Apollo / JSW Steel",
+        "Digital Voltage Meter",
+        "Voltage Fluctuation Protection Alarm",
+        "Spindle Temperature Control",
+        "Power Supply: 220 V, Single Phase",
+        "Total Connected Load: 8 kW",
+        "EMI Filter – 20 A (5 Pieces) for Drive Protection",
+        "6-Pole Relay",
+        "Vibration Pads – 6 Pieces"
+      ],
+      "toolbox_contents": [
+        "Clamps – 6 Pieces",
+        "Secor Tool – 1 Piece",
+        "Allen Key Set (Taparia) – 1 Box",
+        "Spanners for Spindle",
+        "ER32 Collet Set – 1 Piece of Each Size",
+        "Mixed CNC Cutting Tools – 10 Pieces",
+        "WM CNC Tech T-Shirt"
+      ],
+      "unique_features": [
+        "Auto Homing (First in India)",
+        "Night Mode",
+        "Mobile Control (Under R&D)",
+        "Origin Indicator Lamp",
+        "Laser Pointer for Origin Setting",
+        "Transfer Ball Bearing System"
+      ]
+    },
+    {
+      "id": "wm-1325-1625-1825-a",
+      "name": "WM 1325/1625/1825 A",
+      "description": "WM 1325/1625/1825 A is a powerful industrial CNC router built for precision, durability, and efficient production. Equipped with a 4.5kW HQD spindle, 750W M-Servo system, heavy-duty steel frame, and advanced protection features, it delivers reliable performance for woodworking, acrylic, MDF, PVC, aluminum, and other precision cutting applications.",
+      "image": "data/images/wm1325A.png",
+      "technical_specifications": [
+        "M-Series Servo Motor & Drive – 750 W",
+        "Planetary Gearbox – 1:10 Ratio (Redovic / Tornex)",
+        "25 mm Linear Rail & Block (Kunix) + 25 mm Rack (Redovic)",
+        "Ball Screw 25/10 (Kunix)",
+        "Z-Axis Coupling (Miki Pulley, Japan)",
+        "4.5 kW HQD Spindle (220 V)",
+        "Variable Frequency Drive (VFD) – Dezaw",
+        "25 mm Rack & Pinion, Module 1.25 (Redovic)",
+        "VPR with Servo Emergency Alarm System",
+        "Three-Tier Tower Light with Emergency Buzzer",
+        "NK105 G3 CNC Controller",
+        "Aluminium T-Slot Bed with Black Silicone Sheet",
+        "Heavy-Duty 8 mm Machine Structure (Tata / Nezone / Apollo / JSW Steel)",
+        "Digital Voltage Meter",
+        "Voltage Fluctuation Protection Alarm",
+        "Spindle Temperature Control",
+        "Input Voltage: 220 V, Single Phase",
+        "Total Connected Load: 8 kW",
+        "EMI Filter – 20 A (5 Pieces) for Drive Protection",
+        "6-Pole Relay",
+        "Vibration Pads – 6 Pieces"
+      ],
+      "toolbox_contents": [
+        "Clamps – 6 Pieces",
+        "Secor Tool – 1 Piece",
+        "Allen Key Set (Taparia) – 1 Box",
+        "Spanners for Spindle",
+        "ER32 Collet Set – One Collet of Each Size",
+        "Mixed CNC Cutting Tools – 10 Pieces",
+        "WM CNC Tech T-Shirt"
+      ],
+      "unique_features": [
+        "Auto Homing (First in India)",
+        "Night Mode",
+        "Mobile Controlling (Under R&D)",
+        "Origin Lamp"
+      ]
+    },
+    {
+      "id": "wood-drill-machine-with-crompton-3hp-motor",
+      "name": "Wood Drill Machine with Crompton 3HP Motor",
+      "description": "This Wood Drill Machine is powered by a reliable Crompton 3HP motor, delivering powerful and accurate drilling performance. Designed for durability and smooth operation, it is ideal for woodworking workshops, furniture manufacturing, and professional carpentry applications.",
+      "image": "data/images/wooddrillmachine.png",
+      "technical_specifications": [],
+      "toolbox_contents": [],
+      "unique_features": []
+    },
+    {
+      "id": "13-16-18-planner-with-band-saw-standing-chain",
+      "name": "13\"/16\"/18\" Planner with Band Saw & Standing Chain",
+      "description": "This multi-purpose woodworking machine combines a 13\", 16\", or 18\" planner with an integrated band saw and standing chain system for enhanced versatility. Built for precision, durability, and efficient performance, it is ideal for woodworking workshops, furniture manufacturing, and professional carpentry applications.",
+      "image": "data/images/plannerwithbandsawandstandingchain.png",
+      "technical_specifications": [],
+      "toolbox_contents": [],
+      "unique_features": []
+    },
+    {
+      "id": "18-band-saw-with-crompton-3hp-motor",
+      "name": "18\" Band Saw with Crompton 3HP Motor",
+      "description": "This 18-inch Band Saw is powered by a dependable Crompton 3HP motor, delivering smooth, powerful, and precise cutting performance. Built for durability and efficiency, it is ideal for woodworking workshops, furniture manufacturing, and professional cutting applications.",
+      "image": "data/images/18bandsawcrompton.png",
+      "technical_specifications": [],
+      "toolbox_contents": [],
+      "unique_features": []
+    },
+    {
+      "id": "side-cutter-woodworking-machine-with-crompton-3hp-motor",
+      "name": "Side Cutter Woodworking Machine with Crompton 3HP Motor",
+      "description": "Designed for precision and durability, this Side Cutter Woodworking Machine is powered by a reliable Crompton 3HP motor for smooth and efficient performance. It delivers accurate cutting, consistent results, and dependable operation, making it an excellent choice for woodworking workshops, furniture manufacturing, and professional carpentry.",
+      "image": "data/images/sidecutter.png",
+      "technical_specifications": [],
+      "toolbox_contents": [],
+      "unique_features": []
+    },
+    {
+      "id": "13-randha-machine-with-side-jack-cutter-with-crompton-3hp-motor",
+      "name": "13’’Randha machine with side jack cutter with crompton 3hp motor",
+      "description": "Built for efficient and precise woodworking, this 13-inch Randha Machine features a durable side jack cutter for smooth and accurate planing. Powered by a reliable Crompton 3HP motor, it delivers consistent performance, high productivity, and long-lasting operation, making it ideal for workshops, furniture manufacturers, and professional carpenters.",
+      "image": "data/images/randhamachine.png",
+      "technical_specifications": [],
+      "toolbox_contents": [],
+      "unique_features": []
+    }
+  ]
+}

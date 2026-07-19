@@ -33,12 +33,16 @@ class ContextManager:
 
 			question = str(item.chunk.metadata.get("question", "")).strip()
 			answer = str(item.chunk.metadata.get("answer", "")).strip()
+			is_product_description = item.chunk.metadata.get("content_type") == "product_description"
 			score = f"{item.score:.3f}"
-			snippet = (
-				f"[FAQ {idx}] Source: {source} | Score: {score}\n"
-				f"Question: {question}\n"
-				f"Answer: {answer or item.chunk.text.strip()}\n"
-			)
+			if is_product_description:
+				snippet = f"[Product description {idx}] Source: {source} | Score: {score}\n{item.chunk.text.strip()}\n"
+			else:
+				snippet = (
+					f"[FAQ {idx}] Source: {source} | Score: {score}\n"
+					f"Question: {question}\n"
+					f"Answer: {answer or item.chunk.text.strip()}\n"
+				)
 			if current_length + len(snippet) > self.max_context_chars:
 				break
 

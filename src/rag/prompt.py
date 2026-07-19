@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 
 def build_system_prompt(preferred_language: str | None = None, suppress_thinking: bool = False) -> str:
     base_prompt = (
@@ -21,6 +23,14 @@ def build_system_prompt(preferred_language: str | None = None, suppress_thinking
         "Never include <think> tags, hidden reasoning, or analysis in the customer reply. "
         "End with exactly one short, natural follow-up question that helps move the customer conversation forward."
     )
+    product_description_path = Path(__file__).resolve().parents[2] / "data" / "productdescription.md"
+    if product_description_path.exists():
+        product_descriptions = product_description_path.read_text(encoding="utf-8").strip()
+        if product_descriptions:
+            base_prompt += (
+                "\n\nProduct description context for product recommendation and general machine questions:\n"
+                f"{product_descriptions}"
+            )
 
     if suppress_thinking:
         base_prompt += " Return only the final answer and nothing else."
