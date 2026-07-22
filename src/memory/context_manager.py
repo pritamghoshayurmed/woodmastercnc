@@ -33,9 +33,11 @@ class ContextManager:
 
 			question = str(item.chunk.metadata.get("question", "")).strip()
 			answer = str(item.chunk.metadata.get("answer", "")).strip()
-			is_product_description = item.chunk.metadata.get("content_type") == "product_description"
+			content_type = item.chunk.metadata.get("content_type")
 			score = f"{item.score:.3f}"
-			if is_product_description:
+			if content_type == "product_catalog":
+				snippet = f"[Product catalog {idx}] Source: {source} | Score: {score}\n{item.chunk.text.strip()}\n"
+			elif content_type == "product_description":
 				snippet = f"[Product description {idx}] Source: {source} | Score: {score}\n{item.chunk.text.strip()}\n"
 			else:
 				snippet = (

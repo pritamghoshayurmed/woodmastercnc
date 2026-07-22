@@ -43,6 +43,13 @@ def update_rule(rule_id: str, fields: dict[str, Any]) -> dict[str, Any] | None:
     if current is None:
         return None
 
+    def pick(key: str) -> Any:
+        # dict.get()'s default only applies when the key is absent, not when the
+        # caller explicitly sent None for "field not changed" (e.g. a partial
+        # PUT) -- an explicit is-not-None check is required to preserve it.
+        value = fields.get(key)
+        return value if value is not None else current[key]
+
     row = get_db_client().execute_returning(
         """
         UPDATE lead_score_rules
@@ -58,12 +65,12 @@ def update_rule(rule_id: str, fields: dict[str, Any]) -> dict[str, Any] | None:
         RETURNING *;
         """,
         (
-            fields.get("rule_name", current["rule_name"]),
-            fields.get("description", current["description"]),
-            fields.get("weight", current["weight"]),
-            fields.get("enabled", current["enabled"]),
-            fields.get("priority", current["priority"]),
-            fields.get("matching_type", current["matching_type"]),
+            pick("rule_name"),
+            pick("description"),
+            pick("weight"),
+            pick("enabled"),
+            pick("priority"),
+            pick("matching_type"),
             rule_id,
         ),
     )

@@ -1,11 +1,42 @@
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from src.db.client import get_db_client
 
+_PHONE_CHANNEL_PREFIXES = ("whatsapp:", "messenger:")
+_DEFAULT_COUNTRY_CODE = "91"
+
+
+def normalize_phone_number(raw: str) -> str:
+    """Derive the canonical local-format number stored for a phone-based channel.
+
+    WhatsApp/Messenger session ids carry the full number with country code
+    (e.g. "whatsapp:916295716352"); this strips the channel prefix and the
+    leading country code so numbers are stored/looked-up in local format
+    (e.g. "6295716352"). Non-phone channel ids (e.g. "web:...") pass through
+    unchanged since they aren't real phone numbers.
+    """
+    for prefix in _PHONE_CHANNEL_PREFIXES:
+        if raw.startswith(prefix):
+            digits = re.sub(r"\D", "", raw[len(prefix):])
+            if len(digits) > 10 and digits.startswith(_DEFAULT_COUNTRY_CODE):
+                digits = digits[len(_DEFAULT_COUNTRY_CODE):]
+            return digits
+    return raw
+
+
+def to_whatsapp_number(phone_number: str) -> str:
+    """Reconstruct the full country-coded number the WhatsApp API expects for sending."""
+    digits = re.sub(r"\D", "", phone_number)
+    if len(digits) == 10:
+        return f"{_DEFAULT_COUNTRY_CODE}{digits}"
+    return digits
+
 
 def upsert_user(phone_number: str, source: str) -> dict[str, Any]:
+    phone_number = normalize_phone_number(phone_number)
     db = get_db_client()
     row = db.execute_returning(
         """
@@ -26,6 +57,7 @@ def upsert_user(phone_number: str, source: str) -> dict[str, Any]:
 
 
 def get_user_by_phone(phone_number: str) -> dict[str, Any] | None:
+    phone_number = normalize_phone_number(phone_number)
     return get_db_client().fetch_one(
         "SELECT * FROM users WHERE phone_number = %s;",
         (phone_number,),
@@ -34,6 +66,15 @@ def get_user_by_phone(phone_number: str) -> dict[str, Any] | None:
 
 def get_user_by_id(user_id: str) -> dict[str, Any] | None:
     return get_db_client().fetch_one("SELECT * FROM users WHERE id = %s;", (user_id,))
+
+
+def delete_user(user_id: str) -> bool:
+    """Permanently delete a lead and every conversation/message/analysis tied to it (cascading FKs)."""
+    row = get_db_client().execute_returning(
+        "DELETE FROM users WHERE id = %s RETURNING id;",
+        (user_id,),
+    )
+    return row is not None
 
 
 def update_user_state(

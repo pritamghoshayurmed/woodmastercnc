@@ -13,7 +13,7 @@ def upsert_lead_analysis(conversation_id: str, analysis: dict[str, Any]) -> dict
             timeline, sentiment, language, lead_score, qualified, confidence,
             recommended_action, matched_rule_ids, updated_at
         )
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, now())
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::uuid[], now())
         ON CONFLICT (conversation_id)
         DO UPDATE SET
             intent = EXCLUDED.intent,

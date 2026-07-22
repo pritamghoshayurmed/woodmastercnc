@@ -127,9 +127,10 @@ def find_product(question: str, products: list[dict[str, Any]]) -> dict[str, Any
 
 
 def format_catalog(product: dict[str, Any]) -> str:
+    # The actual image is sent as a real attachment via the response's `images`
+    # list (see rag_pipeline.query/query_stream) -- it must not also be quoted
+    # as a raw file path in the text answer.
     lines = [f"Product catalog: {product['name']}"]
-    if product.get("image"):
-        lines.append(f"Image: {product['image']}")
     if product.get("description"):
         lines.append(f"\nOverview:\n{product['description']}")
     for title, key in (

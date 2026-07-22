@@ -7,6 +7,7 @@ import logging
 import os
 import re
 import time
+import unicodedata
 from dataclasses import dataclass
 from typing import Any, Callable
 
@@ -19,12 +20,34 @@ logger = logging.getLogger(__name__)
 
 LANGUAGE_OPTIONS = [
     {"label": "English", "value": "english"},
-    {"label": "Hindi", "value": "hindi"},
-    {"label": "Bengali", "value": "bengali"},
+    {"label": "हिन्दी", "value": "hindi"},
+    {"label": "বাংলা", "value": "bengali"},
 ]
-MAX_CHAT_TURNS = max(1, int(os.getenv("MAX_CHAT_TURNS", "6")))
-INACTIVITY_SECONDS = max(60, int(os.getenv("CONVERSATION_INACTIVITY_SECONDS", "900")))
 _NIM_API_BASE = "https://integrate.api.nvidia.com/v1"
+
+
+def _max_chat_turns() -> int:
+    """Dashboard-configurable turn count before the AI hands off to the sales team."""
+    try:
+        if is_db_enabled():
+            from src.db import ai_settings
+
+            return max(1, int(ai_settings.get_settings()["max_chat_turns"]))
+    except Exception:
+        logger.exception("Failed to load max_chat_turns setting; using env fallback")
+    return max(1, int(os.getenv("MAX_CHAT_TURNS", "6")))
+
+
+def _inactivity_seconds() -> int:
+    """Dashboard-configurable idle window before a conversation resets."""
+    try:
+        if is_db_enabled():
+            from src.db import ai_settings
+
+            return max(60, int(ai_settings.get_settings()["inactivity_timeout_seconds"]))
+    except Exception:
+        logger.exception("Failed to load inactivity_timeout_seconds setting; using env fallback")
+    return max(60, int(os.getenv("CONVERSATION_INACTIVITY_SECONDS", "900")))
 
 DB_TO_STAGE = {
     "LANGUAGE_SELECTION": "language", "ASK_NAME": "name", "ASK_LOCATION": "address",
@@ -72,7 +95,11 @@ class ConversationFlowManager:
 
     @staticmethod
     def _language(text: str) -> str | None:
-        return {"english": "English", "eng": "English", "en": "English", "hindi": "Hindi", "hin": "Hindi", "bengali": "Bengali", "bangla": "Bengali", "bn": "Bengali"}.get(text.strip().lower())
+        return {
+            "english": "English", "eng": "English", "en": "English",
+            "hindi": "Hindi", "hin": "Hindi", "हिन्दी": "Hindi", "हिंदी": "Hindi",
+            "bengali": "Bengali", "bangla": "Bengali", "bn": "Bengali", "বাংলা": "Bengali",
+        }.get(text.strip().lower())
 
     @staticmethod
     def _normalise_extracted_name(value: object) -> str | None:
@@ -84,14 +111,41 @@ class ConversationFlowManager:
             return None
         return name
 
+    @staticmethod
+    def _is_name_word(word: str) -> bool:
+        """True if every character is a letter, or a combining mark/apostrophe/hyphen within one.
+
+        Using Unicode general categories (rather than the regex ``\\w`` class)
+        is required for Indic scripts: vowel signs and virama (e.g. the ``ी``
+        and ``्`` in ``प्रीतम``) are combining marks, not letters, so a
+        letters-only check rejects almost every real Hindi/Bengali name.
+        """
+        if not word or not unicodedata.category(word[0]).startswith("L"):
+            return False
+        return all(
+            unicodedata.category(char)[0] in ("L", "M") or char in "'’.-"
+            for char in word[1:]
+        )
+
+    # Common "my name is" fillers in the languages this flow supports. A reply
+    # containing any of these is a sentence, not a bare name, and must go
+    # through the LLM extractor so only the actual name is kept.
+    _NAME_REPLY_FILLERS = {
+        "my", "name", "is", "im", "i'm", "i", "am", "this",
+        "mera", "mera naam", "naam", "hai", "hoon", "mein",
+        "मेरा", "नाम", "है", "मैं", "हूँ",
+        "amar", "aamar", "naam", "ache", "hocche",
+        "আমার", "নাম", "হয়", "আমি",
+    }
+
     @classmethod
     def _name_from_plain_reply(cls, message: str) -> str | None:
         """Accept an unambiguous name-only reply without calling the LLM.
 
         The name prompt invites exactly this response (for example, ``Pritam
-        Ghosh``).  Keeping this local avoids an onboarding failure when the
-        external extractor is slow or unavailable, while deliberately
-        rejecting sentences and numbers.
+        Ghosh`` or its Hindi/Bengali equivalent).  Keeping this local avoids
+        an onboarding failure when the external extractor is slow or
+        unavailable, while deliberately rejecting sentences and numbers.
         """
         name = cls._normalise_extracted_name(message)
         if not name:
@@ -99,7 +153,9 @@ class ConversationFlowManager:
         words = name.split()
         if not 1 <= len(words) <= 4:
             return None
-        return name if all(re.fullmatch(r"[^\W\d_][^\W\d_'’.-]*", word, re.UNICODE) for word in words) else None
+        if any(word.lower() in cls._NAME_REPLY_FILLERS for word in words):
+            return None
+        return name if all(cls._is_name_word(word) for word in words) else None
 
     @staticmethod
     def _response_text(response: Any) -> str:
@@ -114,7 +170,15 @@ class ConversationFlowManager:
         try:
             payload = json.loads(response_text)
         except (TypeError, ValueError):
-            return None
+            # The model sometimes wraps the JSON object in reasoning prose
+            # despite response_format=json_object; recover the object itself.
+            match = re.search(r"\{.*\}", response_text, re.DOTALL) if response_text else None
+            if not match:
+                return None
+            try:
+                payload = json.loads(match.group(0))
+            except (TypeError, ValueError):
+                return None
         return cls._normalise_extracted_name(payload.get("name") if isinstance(payload, dict) else None)
 
     @classmethod
@@ -139,8 +203,12 @@ class ConversationFlowManager:
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": f"Preferred language: {language or 'unknown'}\nUser message: {message}"},
                 ],
-                temperature=0, top_p=1, max_tokens=80,
+                temperature=0, top_p=1, max_tokens=200,
                 response_format={"type": "json_object"},
+                # This model emits a reasoning trace by default; on non-English
+                # input that trace alone can exceed a small max_tokens budget
+                # and truncate the response before the JSON object appears.
+                extra_body={"chat_template_kwargs": {"enable_thinking": False}},
             )
         except Exception:
             logger.exception("LLM name extraction failed")
@@ -173,7 +241,7 @@ class ConversationFlowManager:
         if conversation is None:
             conversation = conversations.create_conversation(user["id"], self._source(session_id))
             events.log_event(conversation["id"], "conversation_started", {"source": self._source(session_id)})
-        return ({"stage": DB_TO_STAGE.get(user.get("conversation_state"), "language"), "language": user.get("language"), "user_name": user.get("name"), "user_address": user.get("address"), "turn_count": messages.get_message_count(conversation["id"], "USER"), "last_active": user.get("last_seen").timestamp() if user.get("last_seen") else time.time()}, user, conversation)
+        return ({"stage": DB_TO_STAGE.get(user.get("conversation_state"), "language"), "language": user.get("language"), "user_name": user.get("name"), "user_address": user.get("address"), "turn_count": messages.get_chat_turn_count(conversation["id"]), "last_active": user.get("last_seen").timestamp() if user.get("last_seen") else time.time()}, user, conversation)
 
     def _persist(self, user: dict[str, Any], conversation: dict[str, Any], state: dict[str, Any]) -> None:
         users.update_user_state(user["id"], stage=STAGE_TO_DB[state["stage"]], language=state.get("language"), name=state.get("user_name"), address=state.get("user_address"), city=user.get("city"), state_name=user.get("state"), country=user.get("country"), current_conversation_id=conversation["id"], status=user.get("status"), email=user.get("email"), assigned_to=user.get("assigned_to"))
@@ -190,7 +258,7 @@ class ConversationFlowManager:
             state = self._local.setdefault(session_id, self._initial())
 
         now = time.time()
-        timeout = now - float(state.get("last_active", now)) > INACTIVITY_SECONDS
+        timeout = now - float(state.get("last_active", now)) > _inactivity_seconds()
         if timeout:
             state = self._initial()
             if db_enabled and user and conversation:
@@ -223,7 +291,7 @@ class ConversationFlowManager:
                 if db_enabled and conversation:
                     events.log_event(conversation["id"], "language_selected", {"language": selected})
                 return result(handled=True, reply=self._ask_name(selected), preferred_language=selected)
-            return result(handled=True, reply="Welcome to Woodmaster CNC. Please choose your preferred language.", options=LANGUAGE_OPTIONS, images=["data/images/welcome_message_session_start.png"])
+            return result(handled=True, reply="Welcome to WM CNC TECHNOLOGY. Please choose your preferred language.", options=LANGUAGE_OPTIONS, images=["data/images/welcome_message_session_start.png"])
 
         if state["stage"] == "name":
             name = self._name_from_plain_reply(message) or self._name_extractor(message, state.get("language"))
@@ -242,5 +310,26 @@ class ConversationFlowManager:
             return result(handled=True, reply=self._welcome(state["user_name"], state.get("language")), preferred_language=state.get("language"), user_name=state["user_name"])
 
         state["turn_count"] = int(state.get("turn_count", 0)) + 1
-        contact_due = state["turn_count"] >= MAX_CHAT_TURNS and not bool((conversation or {}).get("contact_shared"))
-        return result(handled=False, preferred_language=state.get("language"), user_name=state.get("user_name"), contact_forced=contact_due)
+        already_handed_off = bool((conversation or {}).get("contact_shared"))
+        threshold_reached = state["turn_count"] >= _max_chat_turns()
+
+        if threshold_reached and not already_handed_off:
+            # First turn past the limit: send the one-time sales handoff and
+            # move the conversation to the human-handled bucket. The AI must
+            # not keep auto-replying after this point.
+            if db_enabled and conversation:
+                conversations.mark_human_handled(conversation["id"])
+            return result(
+                handled=True, reply="", preferred_language=state.get("language"),
+                user_name=state.get("user_name"), contact_forced=True,
+            )
+
+        if threshold_reached and already_handed_off:
+            # Already handed off in this conversation: stay silent until a
+            # human replies or inactivity resets the conversation.
+            return result(
+                handled=True, reply="", preferred_language=state.get("language"),
+                user_name=state.get("user_name"), contact_forced=False,
+            )
+
+        return result(handled=False, preferred_language=state.get("language"), user_name=state.get("user_name"), contact_forced=False)

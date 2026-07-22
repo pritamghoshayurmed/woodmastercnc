@@ -5,7 +5,7 @@ from typing import Any
 
 from fastapi import APIRouter, HTTPException
 
-from src.api.leads import LEADS_BASE_QUERY, _lead_row_to_payload
+from src.api.leads import LEADS_BASE_QUERY, _lead_row_to_payload, _lead_thresholds
 from src.db.client import DatabaseDisabledError, get_db_client
 
 
@@ -20,13 +20,14 @@ def dashboard_overview() -> dict[str, Any]:
     except DatabaseDisabledError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
+    thresholds = _lead_thresholds()
     metrics = db.fetch_one(
         """
         SELECT
             COUNT(*) FILTER (WHERE COALESCE(dashboard_state, 'normal') <> 'archived')::int AS total_leads,
             COUNT(*) FILTER (
                 WHERE COALESCE(dashboard_state, 'normal') <> 'archived'
-                  AND COALESCE(la.lead_score, c.lead_score, 0) >= 75
+                  AND COALESCE(la.lead_score, c.lead_score, 0) >= %s
             )::int AS hot_leads,
             COALESCE(ROUND(AVG(COALESCE(la.lead_score, c.lead_score, 0)) FILTER (
                 WHERE COALESCE(dashboard_state, 'normal') <> 'archived'
@@ -34,7 +35,8 @@ def dashboard_overview() -> dict[str, Any]:
         FROM users u
         LEFT JOIN conversations c ON c.id = u.current_conversation_id
         LEFT JOIN lead_analysis la ON la.conversation_id = c.id;
-        """
+        """,
+        (thresholds["hot"],),
     ) or {}
     conversations_today = db.fetch_one(
         """
@@ -72,6 +74,6 @@ def dashboard_overview() -> dict[str, Any]:
             {"date": row["label"].strip(), "day": row["day"], "count": row["count"]}
             for row in trend_rows
         ],
-        "topPotentialLeads": [_lead_row_to_payload(row) for row in top_rows],
+        "topPotentialLeads": [_lead_row_to_payload(row, thresholds) for row in top_rows],
         "weekStart": start.isoformat(),
     }

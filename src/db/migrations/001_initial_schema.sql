@@ -163,3 +163,36 @@ SELECT * FROM (
 WHERE NOT EXISTS (
     SELECT 1 FROM lead_score_rules existing WHERE existing.rule_name = seed.rule_name
 );
+
+-- Dashboard-editable Q&A knowledge base. When this table has rows, the RAG
+-- pipeline sources its FAQ context from here instead of data/knowledge.md.
+CREATE TABLE IF NOT EXISTS qna_entries (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    question TEXT NOT NULL,
+    answer TEXT NOT NULL,
+    enabled BOOLEAN NOT NULL DEFAULT true,
+    priority INT NOT NULL DEFAULT 0,
+    created_at TIMESTAMP NOT NULL DEFAULT now(),
+    updated_at TIMESTAMP NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_qna_entries_enabled ON qna_entries(enabled);
+CREATE INDEX IF NOT EXISTS idx_qna_entries_priority ON qna_entries(priority);
+
+-- Dashboard-editable AI behaviour: system prompt override, lead scoring
+-- thresholds, and the conversation "stop condition" (chat-turn / inactivity
+-- limits that trigger the sales handoff). Enforced as a single row.
+CREATE TABLE IF NOT EXISTS ai_settings (
+    id BOOLEAN PRIMARY KEY DEFAULT true CHECK (id),
+    system_prompt TEXT,
+    hot_lead_threshold INT NOT NULL DEFAULT 75,
+    warm_lead_threshold INT NOT NULL DEFAULT 40,
+    qualified_threshold INT NOT NULL DEFAULT 50,
+    max_chat_turns INT NOT NULL DEFAULT 6,
+    inactivity_timeout_seconds INT NOT NULL DEFAULT 900,
+    updated_at TIMESTAMP NOT NULL DEFAULT now()
+);
+
+INSERT INTO ai_settings (id)
+VALUES (true)
+ON CONFLICT (id) DO NOTHING;

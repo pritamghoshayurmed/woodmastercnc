@@ -91,3 +91,25 @@ def mark_human_handled(conversation_id: str) -> None:
         """,
         (conversation_id,),
     )
+
+
+def clear_human_handled(conversation_id: str) -> dict[str, Any] | None:
+    """Move a conversation back into the AI-handled bucket (e.g. an undo)."""
+    return get_db_client().execute_returning(
+        """
+        UPDATE conversations
+        SET human_handled_at = NULL, updated_at = now()
+        WHERE id = %s
+        RETURNING *;
+        """,
+        (conversation_id,),
+    )
+
+
+def delete_conversation(conversation_id: str) -> bool:
+    """Permanently delete a conversation and its messages/analysis (cascading FKs)."""
+    row = get_db_client().execute_returning(
+        "DELETE FROM conversations WHERE id = %s RETURNING id;",
+        (conversation_id,),
+    )
+    return row is not None

@@ -7,6 +7,7 @@ from collections.abc import Iterable
 from typing import Any
 
 from src.db import conversation_summary, conversations, events, lead_analysis, lead_score_rules, messages, users
+from src.db.client import is_db_enabled
 
 
 logger = logging.getLogger(__name__)
@@ -22,8 +23,29 @@ HIGH_INTENT_PATTERN = re.compile(r"\b(payment|advance|visit|demo|quotation|invoi
 NEGATIVE_PATTERN = re.compile(r"\b(not interested|too expensive|expensive|later|not now)\b", re.IGNORECASE)
 
 
+def _lead_thresholds() -> dict[str, int]:
+    """Dashboard-configurable hot/warm/qualified score thresholds, with env fallbacks."""
+    try:
+        if is_db_enabled():
+            from src.db import ai_settings
+
+            settings = ai_settings.get_settings()
+            return {
+                "hot": int(settings["hot_lead_threshold"]),
+                "warm": int(settings["warm_lead_threshold"]),
+                "qualified": int(settings["qualified_threshold"]),
+            }
+    except Exception:
+        logger.exception("Failed to load lead score thresholds; using env fallback")
+    return {
+        "hot": int(os.getenv("LEAD_SCORE_HOT_THRESHOLD", "75")),
+        "warm": int(os.getenv("LEAD_SCORE_WARM_THRESHOLD", "40")),
+        "qualified": int(os.getenv("LEAD_SCORE_THRESHOLD", "50")),
+    }
+
+
 def _qualification_threshold() -> int:
-    return int(os.getenv("LEAD_SCORE_THRESHOLD", "50"))
+    return _lead_thresholds()["qualified"]
 
 
 def _clean_text(parts: Iterable[str | None]) -> str:
@@ -94,9 +116,10 @@ def _derive_urgency(text: str) -> str:
 
 
 def _derive_interest_level(score: int) -> str:
-    if score >= 75:
+    thresholds = _lead_thresholds()
+    if score >= thresholds["hot"]:
         return "high"
-    if score >= 40:
+    if score >= thresholds["warm"]:
         return "medium"
     return "low"
 
@@ -107,9 +130,10 @@ def _derive_timeline(text: str) -> str | None:
 
 
 def _derive_recommended_action(score: int) -> str:
-    if score >= 75:
+    thresholds = _lead_thresholds()
+    if score >= thresholds["hot"]:
         return "Schedule a sales call and share quotation immediately."
-    if score >= 40:
+    if score >= thresholds["warm"]:
         return "Follow up with brochure, product specs, and pricing clarification."
     return "Keep nurturing with FAQ answers and check buying timeline."
 

@@ -3,4 +3,5 @@
 /woodmaster
 __pycache__/
 *.py[cod]
-../../../.venv
+.venv/
+logs/*.log

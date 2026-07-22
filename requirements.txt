@@ -5,3 +5,4 @@ uvicorn
 cryptography
 litellm
 psycopg2-binary
+python-multipart

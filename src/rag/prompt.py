@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
+logger = logging.getLogger(__name__)
 
-def build_system_prompt(preferred_language: str | None = None, suppress_thinking: bool = False) -> str:
-    base_prompt = (
+
+def _default_base_prompt() -> str:
+    return (
         "You are Woodmaster CNC Assistant, a focused sales and support chatbot for Woodmaster CNC machines only. "
         "Answer only questions related to Woodmaster CNC products, pricing, training, service, financing, materials, delivery, installation, and buying guidance. "
         "Use the provided FAQ context as the only source of factual claims. "
@@ -23,6 +26,26 @@ def build_system_prompt(preferred_language: str | None = None, suppress_thinking
         "Never include <think> tags, hidden reasoning, or analysis in the customer reply. "
         "End with exactly one short, natural follow-up question that helps move the customer conversation forward."
     )
+
+
+def _custom_or_default_base_prompt() -> str:
+    """Use the dashboard-configured system prompt override when one is set."""
+    try:
+        from src.db.client import is_db_enabled
+
+        if is_db_enabled():
+            from src.db import ai_settings
+
+            custom = ai_settings.get_settings().get("system_prompt")
+            if custom and custom.strip():
+                return custom.strip()
+    except Exception:
+        logger.exception("Failed to load custom system prompt; using default")
+    return _default_base_prompt()
+
+
+def build_system_prompt(preferred_language: str | None = None, suppress_thinking: bool = False) -> str:
+    base_prompt = _custom_or_default_base_prompt()
     product_description_path = Path(__file__).resolve().parents[2] / "data" / "productdescription.md"
     if product_description_path.exists():
         product_descriptions = product_description_path.read_text(encoding="utf-8").strip()

@@ -8,7 +8,7 @@ from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
-from src.db import conversation_summary, lead_analysis, users
+from src.db import ai_settings, conversation_summary, lead_analysis, users
 from src.db.client import DatabaseDisabledError, get_db_client
 
 
@@ -27,22 +27,29 @@ class LeadUpdateRequest(BaseModel):
     manualOrder: int | None = None
 
 
-def _purchase_probability(score: int) -> str:
-    if score >= 75:
+def _lead_thresholds() -> dict[str, int]:
+    settings = ai_settings.get_settings()
+    return {"hot": int(settings["hot_lead_threshold"]), "warm": int(settings["warm_lead_threshold"])}
+
+
+def _purchase_probability(score: int, thresholds: dict[str, int] | None = None) -> str:
+    thresholds = thresholds or _lead_thresholds()
+    if score >= thresholds["hot"]:
         return "High"
-    if score >= 40:
+    if score >= thresholds["warm"]:
         return "Medium"
     return "Low"
 
 
-def _lead_row_to_payload(row: dict[str, Any]) -> dict[str, Any]:
+def _lead_row_to_payload(row: dict[str, Any], thresholds: dict[str, int] | None = None) -> dict[str, Any]:
+    thresholds = thresholds or _lead_thresholds()
     score = int(
         row["analysis_score"]
         if row.get("analysis_score") is not None
         else (row.get("lead_score") or 0)
     )
     summary = row.get("summary") or ""
-    potential = "Hot" if score >= 75 else "Warm" if score >= 40 else "Cold"
+    potential = "Hot" if score >= thresholds["hot"] else "Warm" if score >= thresholds["warm"] else "Cold"
     dashboard_state = row.get("dashboard_state") or "normal"
     return {
         "id": row["user_id"],
@@ -63,7 +70,7 @@ def _lead_row_to_payload(row: dict[str, Any]) -> dict[str, Any]:
         "interestedIn": row.get("product_interest") or "",
         "assignedTo": row.get("assigned_to") or "—",
         "aiSummary": summary,
-        "purchaseProbability": _purchase_probability(score),
+        "purchaseProbability": _purchase_probability(score, thresholds),
         "currentConversationId": row.get("conversation_id"),
         "conversationId": row.get("conversation_id"),
         "dashboardState": dashboard_state,
@@ -142,6 +149,7 @@ def get_leads(
     except DatabaseDisabledError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
+    thresholds = _lead_thresholds()
     filters = []
     params: list[Any] = []
     if source:
@@ -160,11 +168,14 @@ def get_leads(
     if manual_handled:
         filters.append("c.human_handled_at IS NOT NULL")
     if potential == "Hot":
-        filters.append("COALESCE(la.lead_score, c.lead_score, 0) >= 75")
+        filters.append("COALESCE(la.lead_score, c.lead_score, 0) >= %s")
+        params.append(thresholds["hot"])
     elif potential == "Warm":
-        filters.append("COALESCE(la.lead_score, c.lead_score, 0) BETWEEN 40 AND 74")
+        filters.append("COALESCE(la.lead_score, c.lead_score, 0) BETWEEN %s AND %s")
+        params.extend([thresholds["warm"], thresholds["hot"] - 1])
     elif potential == "Cold":
-        filters.append("COALESCE(la.lead_score, c.lead_score, 0) < 40")
+        filters.append("COALESCE(la.lead_score, c.lead_score, 0) < %s")
+        params.append(thresholds["warm"])
     if search:
         filters.append("(COALESCE(u.name, '') ILIKE %s OR u.phone_number ILIKE %s OR COALESCE(u.email, '') ILIKE %s)")
         term = f"%{search.strip()}%"
@@ -198,7 +209,7 @@ def get_leads(
         tuple(params),
     )
     return {
-        "leads": [_lead_row_to_payload(row) for row in rows],
+        "leads": [_lead_row_to_payload(row, thresholds) for row in rows],
         "pagination": {
             "page": page,
             "pageSize": page_size,
@@ -260,6 +271,20 @@ def get_lead(user_id: str) -> dict[str, Any]:
     )
     user_payload["conversations"] = conversation_rows
     return user_payload
+
+
+@router.delete("/{user_id}")
+def delete_lead(user_id: str) -> dict[str, Any]:
+    """Permanently delete a lead and every conversation/message tied to it (cascading FKs)."""
+    try:
+        get_db_client()
+    except DatabaseDisabledError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+    deleted = users.delete_user(user_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Lead not found.")
+    return {"deleted": True}
 
 
 @router.put("/{user_id}")

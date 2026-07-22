@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 from pathlib import Path
 from typing import Any
@@ -12,6 +13,20 @@ from src.memory.memory_manager import ConversationMemoryManager
 from src.rag.generation import GeneratorRateLimitError, LiteLLMGenerator
 from src.rag.types import DocumentChunk, RAGResponse, RetrievedChunk
 from src.product_catalog import build_catalog, find_product, format_catalog, load_catalog
+
+logger = logging.getLogger(__name__)
+
+_active_pipeline: "RAGPipeline | None" = None
+
+
+def set_active_pipeline(pipeline: "RAGPipeline | None") -> None:
+	"""Register the live pipeline instance so dashboard edits (e.g. Q&A changes) can reload it."""
+	global _active_pipeline
+	_active_pipeline = pipeline
+
+
+def get_active_pipeline() -> "RAGPipeline | None":
+	return _active_pipeline
 
 
 class RAGPipeline:
@@ -36,12 +51,44 @@ class RAGPipeline:
 
 	def initialize(self, force_rebuild: bool = False) -> None:
 		self.settings.artifact_dir.mkdir(parents=True, exist_ok=True)
-		self.knowledge_chunks = self._load_knowledge_base(self.settings.knowledge_base_path)
-		self.knowledge_chunks.extend(self._load_product_descriptions(self.settings.data_dir / "productdescription.md"))
 		catalog_path = self.settings.data_dir / "product_catalog.json"
 		self.product_catalog = build_catalog(self.settings.data_dir / "productspecification.md", catalog_path) if force_rebuild or not catalog_path.exists() else load_catalog(catalog_path)
+		self.knowledge_chunks = self._build_knowledge_chunks()
 		if not self.knowledge_chunks:
 			raise ValueError(f"No FAQ entries found in {self.settings.knowledge_base_path}.")
+		set_active_pipeline(self)
+
+	def _build_knowledge_chunks(self) -> list[DocumentChunk]:
+		chunks = self._load_knowledge_base(self.settings.knowledge_base_path)
+		chunks.extend(self._load_product_descriptions(self.settings.data_dir / "productdescription.md"))
+		chunks.extend(self._load_product_catalog_chunks())
+		return chunks
+
+	def _load_product_catalog_chunks(self) -> list[DocumentChunk]:
+		"""Expose product_catalog.json (full specs/toolbox/unique features, plus the
+		product image) to general Q&A retrieval, not just the exact-name shortcut
+		in `query()`/`query_stream()`."""
+		chunks: list[DocumentChunk] = []
+		for index, product in enumerate(self.product_catalog, start=1):
+			chunks.append(
+				DocumentChunk(
+					chunk_id=f"catalog-{index}",
+					text=format_catalog(product),
+					source="data/product_catalog.json",
+					metadata={
+						"content_type": "product_catalog",
+						"product_name": product.get("name", ""),
+						"answer": product.get("description", ""),
+						"images": [product["image"]] if product.get("image") else [],
+						"is_placeholder": False,
+					},
+				)
+			)
+		return chunks
+
+	def reload_knowledge_base(self) -> None:
+		"""Re-read Q&A content (database if enabled, else knowledge.md) without a process restart."""
+		self.knowledge_chunks = self._build_knowledge_chunks()
 
 	def query(
 		self,
@@ -183,12 +230,41 @@ class RAGPipeline:
 		self.memory_manager.add_assistant_message(session_id, full_answer)
 		yield {"type": "done"}
 
-	def _load_knowledge_base(self, knowledge_path: Path) -> list[DocumentChunk]:
-		if not knowledge_path.exists():
-			raise FileNotFoundError(f"Knowledge base file not found: {knowledge_path}")
+	def _load_faq_entries_from_db(self) -> list[dict[str, Any]] | None:
+		"""Return dashboard-managed Q&A entries, or None to fall back to knowledge.md."""
+		from src.db.client import is_db_enabled
 
-		text = knowledge_path.read_text(encoding="utf-8")
-		entries = self._parse_faq_entries(text)
+		if not is_db_enabled():
+			return None
+		try:
+			from src.db import qna as db_qna
+
+			rows = db_qna.get_enabled_entries()
+		except Exception:
+			logger.exception("Failed to load Q&A entries from the database; falling back to knowledge.md")
+			return None
+		if not rows:
+			return None
+		return [
+			{
+				"question": row["question"],
+				"answer": self._normalize_markdown_text(row["answer"]),
+				"is_placeholder": False,
+			}
+			for row in rows
+		]
+
+	def _load_knowledge_base(self, knowledge_path: Path) -> list[DocumentChunk]:
+		entries = self._load_faq_entries_from_db()
+		if entries is not None:
+			source = "database:qna_entries"
+		else:
+			if not knowledge_path.exists():
+				raise FileNotFoundError(f"Knowledge base file not found: {knowledge_path}")
+			text = knowledge_path.read_text(encoding="utf-8")
+			entries = self._parse_faq_entries(text)
+			source = str(knowledge_path.relative_to(self.settings.data_dir.parent)).replace("\\", "/")
+
 		chunks: list[DocumentChunk] = []
 
 		image_map = {}
@@ -196,7 +272,6 @@ class RAGPipeline:
 		if mapping_file.exists():
 			image_map = json.loads(mapping_file.read_text(encoding="utf-8"))
 
-		source = str(knowledge_path.relative_to(self.settings.data_dir.parent)).replace("\\", "/")
 		for index, entry in enumerate(entries, start=1):
 			chunk_text = f"Question: {entry['question']}\nAnswer: {entry['answer']}"
 			chunk_lower = chunk_text.lower()
@@ -227,7 +302,7 @@ class RAGPipeline:
 		if not description_path.exists():
 			raise FileNotFoundError(f"Product description file not found: {description_path}")
 		text = description_path.read_text(encoding="utf-8").replace("\r\n", "\n")
-		matches = re.finditer(r"product name\s*:\s*(.+?)\s*,?\s*\n\s*description\s*:\s*(.*?)(?=\n\s*product name\s*:|\Z)", text, re.IGNORECASE | re.DOTALL)
+		matches = re.finditer(r"product name\s*:\s*(.+?)\s*,?\s*\n?\s*description\s*:\s*(.*?)(?=\n\s*product name\s*:|\Z)", text, re.IGNORECASE | re.DOTALL)
 		source = str(description_path.relative_to(self.settings.data_dir.parent)).replace("\\", "/")
 		chunks: list[DocumentChunk] = []
 		for index, match in enumerate(matches, start=1):
@@ -236,7 +311,8 @@ class RAGPipeline:
 			chunks.append(DocumentChunk(chunk_id=f"product-description-{index}", text=f"Product: {name}\nDescription: {description}", source=source, metadata={"content_type": "product_description", "product_name": name, "answer": description, "is_placeholder": False}))
 		return chunks
 
-	def _parse_faq_entries(self, text: str) -> list[dict[str, Any]]:
+	@staticmethod
+	def _parse_faq_entries(text: str) -> list[dict[str, Any]]:
 		cleaned = text.replace("\r\n", "\n")
 		blocks = re.split(r"^##\s+", cleaned, flags=re.MULTILINE)
 		entries: list[dict[str, Any]] = []
@@ -252,7 +328,7 @@ class RAGPipeline:
 			question = re.sub(r"^Q\d+\.\s*", "", heading).strip()
 			answer = re.sub(r"^\*\*Answer:\*\*\s*", "", body, flags=re.IGNORECASE).strip()
 			answer = re.sub(r"\n---\s*$", "", answer).strip()
-			answer = self._normalize_markdown_text(answer)
+			answer = RAGPipeline._normalize_markdown_text(answer)
 			if not question or not answer:
 				continue
 
@@ -554,14 +630,25 @@ class RAGPipeline:
 		selected: list[str] = []
 		product_tags: set[str] = set()
 
+		# Only send images from chunks close to the strongest image-bearing match.
+		# Retrieval keeps several loosely-related chunks for text context (e.g.
+		# sibling machine models), but attaching every one of their images would
+		# spam several product photos for a question about a single model.
+		image_candidates = [item for item in retrieved if item.chunk.metadata.get("images")]
+		if image_candidates:
+			top_image_score = max(item.score for item in image_candidates)
+			image_threshold = max(top_image_score * 0.85, top_image_score - 0.05)
+			for item in image_candidates:
+				if item.score < image_threshold:
+					continue
+				for img in item.chunk.metadata["images"]:
+					if img not in selected:
+						selected.append(img)
+
 		for item in retrieved:
-			chunk_images = item.chunk.metadata.get("images", [])
 			product_tag = item.chunk.metadata.get("product_tag")
 			if product_tag:
 				product_tags.add(str(product_tag).lower())
-			for img in chunk_images:
-				if img not in selected:
-					selected.append(img)
 
 		# If no direct chunk image match, infer only from product IDs referenced by
 		# retrieved chunks and explicit question product mentions.

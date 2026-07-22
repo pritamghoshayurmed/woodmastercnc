@@ -100,6 +100,14 @@ def _try_initialize_database() -> None:
             raise RuntimeError("SALES_PHONE and SALES_EMAIL must be configured for the sales handoff.")
     run_sql_file()
     logger.info("Database migrations verified.")
+    try:
+        from src.db import qna as db_qna
+
+        seeded = db_qna.seed_from_markdown_if_empty(Path(__file__).resolve().parent / "data" / "knowledge.md")
+        if seeded:
+            logger.info("Seeded %d Q&A entries from data/knowledge.md.", seeded)
+    except Exception:
+        logger.exception("Failed to seed Q&A entries from data/knowledge.md")
 
 
 def _score_if_needed(conversation_id: str | None) -> None:
@@ -144,6 +152,21 @@ def _record_bot_reply(
         logger.exception("Failed to record bot reply", extra={"conversation_id": conversation_id})
 
 
+def _record_bot_images(conversation_id: str | None, image_paths: list[str]) -> None:
+    """Log each image the AI actually sent so the dashboard thread reflects it."""
+    if not conversation_id or not image_paths or not is_db_enabled():
+        return
+    base_url = PUBLIC_BASE_URL.rstrip("/") if PUBLIC_BASE_URL else ""
+    try:
+        for img_path in image_paths:
+            image_url = f"{base_url}/{img_path}" if base_url else img_path
+            db_messages.append_message(conversation_id, "BOT", image_url, message_type="image")
+    except DatabaseDisabledError:
+        return
+    except Exception:
+        logger.exception("Failed to record bot image", extra={"conversation_id": conversation_id})
+
+
 def _add_sales_contact_prompt(reply: str, flow_result) -> str:
     """Append the one-time sales handoff after the configured chat-turn threshold."""
     if not flow_result.contact_forced:
@@ -165,7 +188,7 @@ def _add_sales_contact_prompt(reply: str, flow_result) -> str:
             db_conversations.set_contact_shared(flow_result.conversation_id, True)
         except Exception:
             logger.exception("Failed to mark sales contact as shared", extra={"conversation_id": flow_result.conversation_id})
-    return f"{reply.rstrip()}\n\n{handoff}"
+    return handoff if not reply.strip() else f"{reply.rstrip()}\n\n{handoff}"
 
 
 def _verify_whatsapp_signature(raw_body: bytes, signature_header: str | None) -> bool:
@@ -380,14 +403,15 @@ async def handle_webhook(req: WebhookRequest):
         rag.memory_manager.clear(req.session_id)
 
     if flow_result.handled:
+        handled_reply = _add_sales_contact_prompt(flow_result.reply, flow_result)
         _record_bot_reply(
             flow_result.conversation_id,
-            flow_result.reply,
+            handled_reply,
             language=flow_result.preferred_language,
         )
         return {
             "session_id": req.session_id,
-            "reply": flow_result.reply,
+            "reply": handled_reply,
             "images": flow_result.images or [],
             "options": flow_result.options or [],
             "flow_stage": flow_result.stage,
@@ -419,6 +443,7 @@ async def handle_webhook(req: WebhookRequest):
             model=(settings.llm_model if settings else None),
             latency_ms=latency_ms,
         )
+        _record_bot_images(flow_result.conversation_id, final_images)
 
         # response should contain 'answer', 'sources', 'images'
         return {
@@ -506,17 +531,19 @@ async def whatsapp_webhook(request: Request):
                 flow_result.reply,
                 language=flow_result.preferred_language,
             )
+            _record_bot_images(flow_result.conversation_id, flow_result.images or [])
 
         if flow_result.handled:
+            handled_reply = _add_sales_contact_prompt(flow_result.reply, flow_result)
             await _send_whatsapp_flow_response(
                 from_number,
-                flow_result.reply,
+                handled_reply,
                 flow_result.options,
                 flow_result.images,
             )
             _record_bot_reply(
                 flow_result.conversation_id,
-                flow_result.reply,
+                handled_reply,
                 language=flow_result.preferred_language,
             )
             continue
@@ -531,6 +558,7 @@ async def whatsapp_webhook(request: Request):
             answer = _add_sales_contact_prompt(answer, flow_result)
             await run_in_threadpool(wa.send_text, from_number, answer)
             await _send_public_images_whatsapp(from_number, response.get("images", []))
+            _record_bot_images(flow_result.conversation_id, response.get("images", []))
             _record_bot_reply(
                 flow_result.conversation_id,
                 answer,
@@ -612,17 +640,18 @@ async def messenger_webhook(request: Request):
                 # but could be added similar to WhatsApp.
 
             if flow_result.handled:
+                handled_reply = _add_sales_contact_prompt(flow_result.reply, flow_result)
                 if flow_result.options:
                     # Use quick replies for language selection on Messenger
                     await run_in_threadpool(
                         _send_messenger_quick_replies,
-                        psid, flow_result.reply, flow_result.options,
+                        psid, handled_reply, flow_result.options,
                     )
-                else:
-                    await run_in_threadpool(_send_messenger_text, psid, flow_result.reply)
+                elif handled_reply:
+                    await run_in_threadpool(_send_messenger_text, psid, handled_reply)
                 _record_bot_reply(
                     flow_result.conversation_id,
-                    flow_result.reply,
+                    handled_reply,
                     language=flow_result.preferred_language,
                 )
                 continue

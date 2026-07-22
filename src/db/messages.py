@@ -43,6 +43,36 @@ def get_conversation_messages(conversation_id: str, limit: int = 200) -> list[di
     )
 
 
+def get_chat_turn_count(conversation_id: str) -> int:
+    """Count user messages sent after onboarding (language/name/address) completed.
+
+    The stop-condition turn budget is meant to apply to actual Q&A turns, not
+    the onboarding exchange -- counting every USER row would burn most of the
+    budget on greeting/language/name/address before the customer asks anything.
+    """
+    boundary = get_db_client().fetch_one(
+        """
+        SELECT created_at FROM events
+        WHERE conversation_id = %s AND event_type = 'user_info_collected'
+        ORDER BY created_at DESC
+        LIMIT 1;
+        """,
+        (conversation_id,),
+    )
+    if boundary is None:
+        return get_message_count(conversation_id, "USER")
+
+    row = get_db_client().fetch_one(
+        """
+        SELECT COUNT(*)::int AS count
+        FROM messages
+        WHERE conversation_id = %s AND sender = 'USER' AND timestamp > %s;
+        """,
+        (conversation_id, boundary["created_at"]),
+    )
+    return int((row or {}).get("count", 0))
+
+
 def get_message_count(conversation_id: str, sender: str | None = None) -> int:
     if sender:
         row = get_db_client().fetch_one(
